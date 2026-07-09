@@ -28,10 +28,14 @@ jobs:
       - name: Verify project files
         run: |
           set -e
+          pwd
+          ls -lah
           test -f Makefile
           test -f control
           test -f gpsq.mm
-          echo "Project files are ready"
+          test -f gpsq.plist
+          test -f Filter.plist
+          echo "Project files and filter plists are ready"
 
       - name: Build package
         run: |
