@@ -11,27 +11,8 @@ include $(THEOS)/makefiles/common.mk
 
 TWEAK_NAME := gpsq
 
-gpsq_FILES := \
-  gpsq.mm \
-  Core/GPSQManager.mm \
-  Core/ActivationManager.mm \
-  Core/UUIDManager.mm \
-  Core/NetworkManager.mm \
-  Core/StorageManager.mm \
-  UI/MainView.mm \
-  UI/ActivationView.mm \
-  UI/Components.mm \
-  Map/MapController.mm \
-  Map/SearchController.mm \
-  Map/FavoritesManager.mm \
-  Utils/Logger.mm \
-  GPSQFramework/Core/GPSQEmployeeSwitchBridge.mm \
-  GPSQFramework/Core/GPSQSecureStore.mm
-
-gpsq_FRAMEWORKS := UIKit Foundation CoreLocation MapKit QuartzCore
-gpsq_CFLAGS := -fobjc-arc -Wno-deprecated-declarations -Wno-unused-function -IHeaders -IGPSQFramework/Headers -DGPSQ_API_BASE=@\"$(GPSQ_API_BASE)\" -DGPSQ_API_KEY=@\"$(GPSQ_API_KEY)\"
-gpsq_CCFLAGS := -std=c++17
-
-gpsq_RESOURCE_DIRS := Resources
+gpsq_FILES := gpsq.mm
+gpsq_FRAMEWORKS := UIKit Foundation QuartzCore
+gpsq_CFLAGS := -fobjc-arc -Wno-deprecated-declarations -Wno-unused-function -DGPSQ_API_BASE=@\"$(GPSQ_API_BASE)\" -DGPSQ_API_KEY=@\"$(GPSQ_API_KEY)\"
 
 include $(THEOS_MAKE_PATH)/tweak.mk
