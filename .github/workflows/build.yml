@@ -1,4 +1,4 @@
-name: Build gpsq
+name: Build GPS DEB
 
 on:
   push:
@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   build:
-    name: Build gpsq DEB
+    name: Build GPS DEB
     runs-on: ubuntu-latest
 
     steps:
@@ -28,9 +28,9 @@ jobs:
       - name: Verify project files
         run: |
           set -e
-          test -f gpsq.mm
           test -f Makefile
           test -f control
+          test -f Sources/GPS.mm
           echo "Project files are ready"
 
       - name: Build package
@@ -46,7 +46,7 @@ jobs:
           echo "Repository:" > artifacts/build-info.txt
           pwd >> artifacts/build-info.txt
           echo "\nFiles:" >> artifacts/build-info.txt
-          find . -maxdepth 3 -type f | sort >> artifacts/build-info.txt
+          find . -maxdepth 4 -type f | sort >> artifacts/build-info.txt
           echo "\nDEB files:" >> artifacts/build-info.txt
           find . -type f -name "*.deb" -not -path "./.git/*" -print | tee artifacts/deb-list.txt
           while IFS= read -r deb; do
@@ -58,7 +58,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: gpsq-DEB-Packages
+          name: GPS-DEB-Packages
           path: artifacts/
           if-no-files-found: warn
           retention-days: 30
