@@ -1,25 +1,30 @@
 #import <UIKit/UIKit.h>
 #import <Foundation/Foundation.h>
-#import <MapKit/MapKit.h>
-#import <CoreLocation/CoreLocation.h>
 #import <QuartzCore/QuartzCore.h>
+
+#ifndef GPSQ_API_BASE
+#define GPSQ_API_BASE @"https://ipa.p3nd.fun/server/public/api"
+#endif
+
+#ifndef GPSQ_API_KEY
+#define GPSQ_API_KEY @""
+#endif
 
 #define GPSQ_APP_NAME @"GPS Plus"
 #define GPSQ_APP_VERSION @"1.1"
-#define GPSQ_ACTIVATION_URL @"https://p3nd.fun/gps/api/activate.php"
 
 static NSString *GPSQDeviceID(void) {
     NSString *vendorID = [[[UIDevice currentDevice] identifierForVendor] UUIDString];
     if (vendorID.length > 0) return vendorID;
 
-    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-    NSString *savedID = [defaults stringForKey:@"GPSQ_FallbackUDID"];
-    if (savedID.length == 0) {
-        savedID = [[NSUUID UUID] UUIDString];
-        [defaults setObject:savedID forKey:@"GPSQ_FallbackUDID"];
-        [defaults synchronize];
+    NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
+    NSString *saved = [d stringForKey:@"GPSQ_FallbackUDID"];
+    if (saved.length == 0) {
+        saved = [[NSUUID UUID] UUIDString];
+        [d setObject:saved forKey:@"GPSQ_FallbackUDID"];
+        [d synchronize];
     }
-    return savedID;
+    return saved;
 }
 
 static UIColor *GPSQColor(CGFloat r, CGFloat g, CGFloat b) {
@@ -27,373 +32,276 @@ static UIColor *GPSQColor(CGFloat r, CGFloat g, CGFloat b) {
 }
 
 static UIButton *GPSQButton(NSString *title, UIColor *color) {
-    UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
-    button.backgroundColor = color;
-    button.layer.cornerRadius = 14.0;
-    button.layer.masksToBounds = YES;
-    button.titleLabel.font = [UIFont boldSystemFontOfSize:15.0];
-    button.titleLabel.adjustsFontSizeToFitWidth = YES;
-    button.titleLabel.minimumScaleFactor = 0.75;
-    [button setTitle:title forState:UIControlStateNormal];
-    [button setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
-    return button;
+    UIButton *b = [UIButton buttonWithType:UIButtonTypeSystem];
+    b.backgroundColor = color;
+    b.layer.cornerRadius = 16.0;
+    b.layer.masksToBounds = YES;
+    b.titleLabel.font = [UIFont boldSystemFontOfSize:16.0];
+    b.titleLabel.adjustsFontSizeToFitWidth = YES;
+    b.titleLabel.minimumScaleFactor = 0.75;
+    [b setTitle:title forState:UIControlStateNormal];
+    [b setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
+    return b;
 }
 
-@interface GPSQController : UIViewController <UITextFieldDelegate, UISearchBarDelegate, MKMapViewDelegate>
-@property (nonatomic, strong) UIView *rootCard;
-@property (nonatomic, strong) MKMapView *mapView;
-@property (nonatomic, strong) UISegmentedControl *mapTypeControl;
-@property (nonatomic, strong) UISearchBar *searchBar;
-@property (nonatomic, strong) UITextField *codeField;
-@property (nonatomic, strong) UILabel *statusLabel;
-@property (nonatomic, strong) UILabel *versionLabel;
-@property (nonatomic, strong) UISwitch *spoofSwitch;
-@property (nonatomic, assign) BOOL activated;
+@interface GPSQRootController : UIViewController <UITextFieldDelegate>
+@property(nonatomic,strong) UIButton *floatingButton;
+@property(nonatomic,strong) UIView *dialogView;
+@property(nonatomic,strong) UITextField *codeField;
+@property(nonatomic,strong) UILabel *statusLabel;
+@property(nonatomic,strong) UIView *fullOverlay;
+@property(nonatomic,assign) BOOL activated;
+@property(nonatomic,assign) CGPoint dragStart;
 @end
 
-@implementation GPSQController
+@implementation GPSQRootController
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.view.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.18];
+    self.view.backgroundColor = UIColor.clearColor;
     self.activated = [[NSUserDefaults standardUserDefaults] boolForKey:@"GPSQ_Activated"];
-    [self buildInterface];
+    [self buildFloatingIcon];
 }
 
-- (void)buildInterface {
-    [self.rootCard removeFromSuperview];
-    self.rootCard = nil;
+- (void)buildFloatingIcon {
+    self.floatingButton = GPSQButton(@"GPS", GPSQColor(22, 163, 74));
+    self.floatingButton.frame = CGRectMake(24, 180, 68, 68);
+    self.floatingButton.layer.cornerRadius = 34;
+    self.floatingButton.layer.shadowColor = UIColor.blackColor.CGColor;
+    self.floatingButton.layer.shadowOpacity = 0.35;
+    self.floatingButton.layer.shadowRadius = 12;
+    self.floatingButton.layer.shadowOffset = CGSizeMake(0, 6);
+    [self.floatingButton addTarget:self action:@selector(floatingTapped) forControlEvents:UIControlEventTouchUpInside];
 
-    CGFloat screenWidth = UIScreen.mainScreen.bounds.size.width;
-    CGFloat cardWidth = MAX(320.0, screenWidth - 20.0);
-    CGFloat topInset = 24.0;
-    if (@available(iOS 11.0, *)) {
-        UIWindow *keyWindow = UIApplication.sharedApplication.keyWindow;
-        topInset = keyWindow.safeAreaInsets.top + 18.0;
-        if (topInset < 24.0) topInset = 24.0;
-    }
-
-    CGFloat cardHeight = self.activated ? 620.0 : 250.0;
-    self.rootCard = [[UIView alloc] initWithFrame:CGRectMake(10.0, topInset, cardWidth, cardHeight)];
-    self.rootCard.backgroundColor = GPSQColor(20, 22, 28);
-    self.rootCard.layer.cornerRadius = 24.0;
-    self.rootCard.layer.shadowColor = UIColor.blackColor.CGColor;
-    self.rootCard.layer.shadowOpacity = 0.35;
-    self.rootCard.layer.shadowRadius = 16.0;
-    self.rootCard.layer.shadowOffset = CGSizeMake(0, 8);
-    [self.view addSubview:self.rootCard];
-
-    [self buildHeaderWithCardWidth:cardWidth];
-
-    if (!self.activated) {
-        [self buildActivationOnlyWithCardWidth:cardWidth];
-        return;
-    }
-
-    [self buildMainToolsWithCardWidth:cardWidth startY:66.0];
+    UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handleDrag:)];
+    [self.floatingButton addGestureRecognizer:pan];
+    [self.view addSubview:self.floatingButton];
 }
 
-- (void)buildHeaderWithCardWidth:(CGFloat)cardWidth {
-    UIButton *closeButton = GPSQButton(@"إغلاق", GPSQColor(0, 122, 255));
-    closeButton.frame = CGRectMake(cardWidth - 86.0, 14.0, 72.0, 42.0);
-    [closeButton addTarget:self action:@selector(closePanel) forControlEvents:UIControlEventTouchUpInside];
-    [self.rootCard addSubview:closeButton];
+- (void)handleDrag:(UIPanGestureRecognizer *)pan {
+    CGPoint t = [pan translationInView:self.view];
+    if (pan.state == UIGestureRecognizerStateBegan) self.dragStart = self.floatingButton.center;
 
-    UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(92.0, 14.0, cardWidth - 184.0, 42.0)];
-    titleLabel.text = GPSQ_APP_NAME;
-    titleLabel.textColor = UIColor.whiteColor;
-    titleLabel.textAlignment = NSTextAlignmentCenter;
-    titleLabel.font = [UIFont boldSystemFontOfSize:22.0];
-    [self.rootCard addSubview:titleLabel];
-
-    self.versionLabel = [[UILabel alloc] initWithFrame:CGRectMake(14.0, 16.0, 92.0, 38.0)];
-    self.versionLabel.text = [NSString stringWithFormat:@"%@ v%@", self.activated ? @"✅" : @"🔒", GPSQ_APP_VERSION];
-    self.versionLabel.textColor = GPSQColor(220, 225, 235);
-    self.versionLabel.font = [UIFont boldSystemFontOfSize:14.0];
-    [self.rootCard addSubview:self.versionLabel];
+    CGPoint c = CGPointMake(self.dragStart.x + t.x, self.dragStart.y + t.y);
+    CGFloat hw = self.floatingButton.bounds.size.width / 2.0;
+    CGFloat hh = self.floatingButton.bounds.size.height / 2.0;
+    c.x = MAX(hw, MIN(self.view.bounds.size.width - hw, c.x));
+    c.y = MAX(hh, MIN(self.view.bounds.size.height - hh, c.y));
+    self.floatingButton.center = c;
 }
 
-- (void)buildActivationOnlyWithCardWidth:(CGFloat)cardWidth {
-    UIView *box = [[UIView alloc] initWithFrame:CGRectMake(14.0, 72.0, cardWidth - 28.0, 158.0)];
-    box.backgroundColor = GPSQColor(30, 34, 44);
-    box.layer.cornerRadius = 18.0;
-    [self.rootCard addSubview:box];
+- (void)floatingTapped {
+    if (self.activated) [self showFullOverlay];
+    else [self showActivationDialog];
+}
 
-    UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(14.0, 12.0, box.bounds.size.width - 28.0, 28.0)];
-    label.text = @"يجب تفعيل GPS Plus أولاً";
-    label.textColor = UIColor.whiteColor;
-    label.font = [UIFont boldSystemFontOfSize:18.0];
-    label.textAlignment = NSTextAlignmentRight;
-    [box addSubview:label];
+- (void)showActivationDialog {
+    [self.dialogView removeFromSuperview];
+    [[self.view viewWithTag:1001] removeFromSuperview];
 
-    self.codeField = [[UITextField alloc] initWithFrame:CGRectMake(14.0, 52.0, box.bounds.size.width - 112.0, 48.0)];
-    self.codeField.placeholder = @"أدخل كود 8 خانات";
-    self.codeField.textAlignment = NSTextAlignmentCenter;
-    self.codeField.font = [UIFont boldSystemFontOfSize:20.0];
+    UIView *shade = [[UIView alloc] initWithFrame:self.view.bounds];
+    shade.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.15];
+    shade.tag = 1001;
+    [self.view addSubview:shade];
+
+    CGFloat w = MIN(self.view.bounds.size.width - 36, 390);
+    self.dialogView = [[UIView alloc] initWithFrame:CGRectMake((self.view.bounds.size.width - w) / 2, (self.view.bounds.size.height - 260) / 2, w, 260)];
+    self.dialogView.backgroundColor = GPSQColor(20, 24, 33);
+    self.dialogView.layer.cornerRadius = 24;
+    self.dialogView.layer.borderWidth = 1;
+    self.dialogView.layer.borderColor = GPSQColor(50, 60, 80).CGColor;
+    [self.view addSubview:self.dialogView];
+
+    UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(20, 18, w - 40, 38)];
+    title.text = GPSQ_APP_NAME;
+    title.textColor = UIColor.whiteColor;
+    title.font = [UIFont boldSystemFontOfSize:26];
+    title.textAlignment = NSTextAlignmentCenter;
+    [self.dialogView addSubview:title];
+
+    UILabel *sub = [[UILabel alloc] initWithFrame:CGRectMake(20, 60, w - 40, 28)];
+    sub.text = @"أدخل كود التفعيل";
+    sub.textColor = GPSQColor(210, 220, 235);
+    sub.font = [UIFont systemFontOfSize:16];
+    sub.textAlignment = NSTextAlignmentCenter;
+    [self.dialogView addSubview:sub];
+
+    self.codeField = [[UITextField alloc] initWithFrame:CGRectMake(20, 100, w - 40, 54)];
+    self.codeField.placeholder = @"كود 8 خانات";
     self.codeField.backgroundColor = UIColor.whiteColor;
     self.codeField.textColor = UIColor.blackColor;
-    self.codeField.layer.cornerRadius = 14.0;
+    self.codeField.textAlignment = NSTextAlignmentCenter;
+    self.codeField.font = [UIFont boldSystemFontOfSize:22];
+    self.codeField.layer.cornerRadius = 16;
     self.codeField.layer.masksToBounds = YES;
-    self.codeField.delegate = self;
     self.codeField.autocapitalizationType = UITextAutocapitalizationTypeAllCharacters;
-    [box addSubview:self.codeField];
+    self.codeField.delegate = self;
+    [self.dialogView addSubview:self.codeField];
 
-    UIButton *activateButton = GPSQButton(@"تفعيل", GPSQColor(20, 180, 85));
-    activateButton.frame = CGRectMake(box.bounds.size.width - 88.0, 52.0, 74.0, 48.0);
-    [activateButton addTarget:self action:@selector(activateCode) forControlEvents:UIControlEventTouchUpInside];
-    [box addSubview:activateButton];
+    CGFloat bw = (w - 52) / 2.0;
+    UIButton *paste = GPSQButton(@"لصق النص", GPSQColor(71, 85, 105));
+    paste.frame = CGRectMake(20, 170, bw, 48);
+    [paste addTarget:self action:@selector(pasteCode) forControlEvents:UIControlEventTouchUpInside];
+    [self.dialogView addSubview:paste];
 
-    self.statusLabel = [[UILabel alloc] initWithFrame:CGRectMake(14.0, 110.0, box.bounds.size.width - 28.0, 40.0)];
-    self.statusLabel.text = @"الخريطة والأزرار لن تظهر إلا بعد نجاح التفعيل";
-    self.statusLabel.textColor = GPSQColor(190, 198, 210);
-    self.statusLabel.font = [UIFont systemFontOfSize:13.0];
-    self.statusLabel.numberOfLines = 2;
-    self.statusLabel.textAlignment = NSTextAlignmentRight;
-    [box addSubview:self.statusLabel];
-}
+    UIButton *activate = GPSQButton(@"تفعيل", GPSQColor(22, 163, 74));
+    activate.frame = CGRectMake(32 + bw, 170, bw, 48);
+    [activate addTarget:self action:@selector(activateCode) forControlEvents:UIControlEventTouchUpInside];
+    [self.dialogView addSubview:activate];
 
-- (void)buildMainToolsWithCardWidth:(CGFloat)cardWidth startY:(CGFloat)yStart {
-    CGFloat y = yStart;
-
-    UILabel *sourceLabel = [[UILabel alloc] initWithFrame:CGRectMake(14.0, y, cardWidth - 28.0, 22.0)];
-    sourceLabel.text = @"مصدر البيانات: Apple MapKit + MKLocalSearch";
-    sourceLabel.textColor = GPSQColor(160, 170, 185);
-    sourceLabel.font = [UIFont systemFontOfSize:12.0];
-    sourceLabel.textAlignment = NSTextAlignmentRight;
-    [self.rootCard addSubview:sourceLabel];
-    y += 24.0;
-
-    self.searchBar = [[UISearchBar alloc] initWithFrame:CGRectMake(14.0, y, cardWidth - 28.0, 46.0)];
-    self.searchBar.placeholder = @"ابحث عن موقع أو أدخل إحداثيات";
-    self.searchBar.delegate = self;
-    self.searchBar.searchBarStyle = UISearchBarStyleMinimal;
-    self.searchBar.semanticContentAttribute = UISemanticContentAttributeForceRightToLeft;
-    [self.rootCard addSubview:self.searchBar];
-    y += 54.0;
-
-    self.mapTypeControl = [[UISegmentedControl alloc] initWithItems:@[@"خريطة", @"قمر صناعي", @"هجينة"]];
-    self.mapTypeControl.frame = CGRectMake(14.0, y, cardWidth - 28.0, 36.0);
-    self.mapTypeControl.selectedSegmentIndex = 0;
-    [self.mapTypeControl addTarget:self action:@selector(changeMapType) forControlEvents:UIControlEventValueChanged];
-    [self.rootCard addSubview:self.mapTypeControl];
-    y += 44.0;
-
-    self.mapView = [[MKMapView alloc] initWithFrame:CGRectMake(14.0, y, cardWidth - 28.0, 250.0)];
-    self.mapView.layer.cornerRadius = 18.0;
-    self.mapView.layer.masksToBounds = YES;
-    self.mapView.delegate = self;
-    self.mapView.showsUserLocation = YES;
-    CLLocationCoordinate2D makkah = CLLocationCoordinate2DMake(21.3891, 39.8579);
-    [self.mapView setRegion:MKCoordinateRegionMakeWithDistance(makkah, 2500.0, 2500.0) animated:NO];
-    [self.rootCard addSubview:self.mapView];
-
-    UIButton *gpsButton = GPSQButton(@"GPS", GPSQColor(20, 180, 85));
-    gpsButton.frame = CGRectMake(cardWidth - 86.0, y + 14.0, 58.0, 42.0);
-    [gpsButton addTarget:self action:@selector(centerMap) forControlEvents:UIControlEventTouchUpInside];
-    [self.rootCard addSubview:gpsButton];
-
-    UIButton *photoButton = GPSQButton(@"📷", GPSQColor(36, 130, 255));
-    photoButton.frame = CGRectMake(26.0, y + 14.0, 48.0, 42.0);
-    [photoButton addTarget:self action:@selector(showComingSoon) forControlEvents:UIControlEventTouchUpInside];
-    [self.rootCard addSubview:photoButton];
-
-    UIButton *targetButton = GPSQButton(@"⌖", GPSQColor(80, 90, 105));
-    targetButton.frame = CGRectMake(26.0, y + 66.0, 48.0, 42.0);
-    [targetButton addTarget:self action:@selector(centerMap) forControlEvents:UIControlEventTouchUpInside];
-    [self.rootCard addSubview:targetButton];
-    y += 264.0;
-
-    [self buildControlPanelAtY:y cardWidth:cardWidth];
-}
-
-- (void)buildControlPanelAtY:(CGFloat)y cardWidth:(CGFloat)cardWidth {
-    UIView *panel = [[UIView alloc] initWithFrame:CGRectMake(14.0, y, cardWidth - 28.0, 160.0)];
-    panel.backgroundColor = GPSQColor(28, 31, 39);
-    panel.layer.cornerRadius = 18.0;
-    [self.rootCard addSubview:panel];
-
-    CGFloat buttonWidth = (panel.bounds.size.width - 30.0) / 2.0;
-
-    UIButton *searchButton = GPSQButton(@"إبحث عن موقع", GPSQColor(40, 120, 255));
-    searchButton.frame = CGRectMake(10.0, 12.0, buttonWidth, 42.0);
-    [searchButton addTarget:self action:@selector(focusSearch) forControlEvents:UIControlEventTouchUpInside];
-    [panel addSubview:searchButton];
-
-    UIButton *favoriteButton = GPSQButton(@"المفضلة", GPSQColor(142, 68, 173));
-    favoriteButton.frame = CGRectMake(20.0 + buttonWidth, 12.0, buttonWidth, 42.0);
-    [favoriteButton addTarget:self action:@selector(showComingSoon) forControlEvents:UIControlEventTouchUpInside];
-    [panel addSubview:favoriteButton];
-
-    UIButton *hideButton = GPSQButton(@"إخفاء زر الأداة", GPSQColor(224, 65, 65));
-    hideButton.frame = CGRectMake(10.0, 64.0, buttonWidth, 42.0);
-    [hideButton addTarget:self action:@selector(closePanel) forControlEvents:UIControlEventTouchUpInside];
-    [panel addSubview:hideButton];
-
-    UIButton *uuidButton = GPSQButton(@"معرف الجهاز UUID", GPSQColor(230, 145, 45));
-    uuidButton.frame = CGRectMake(20.0 + buttonWidth, 64.0, buttonWidth, 42.0);
-    [uuidButton addTarget:self action:@selector(copyUDID) forControlEvents:UIControlEventTouchUpInside];
-    [panel addSubview:uuidButton];
-
-    UILabel *switchLabel = [[UILabel alloc] initWithFrame:CGRectMake(10.0, 116.0, 170.0, 34.0)];
-    switchLabel.text = @"تفعيل تغيير الموقع";
-    switchLabel.textColor = UIColor.whiteColor;
-    switchLabel.font = [UIFont boldSystemFontOfSize:15.0];
-    switchLabel.textAlignment = NSTextAlignmentRight;
-    [panel addSubview:switchLabel];
-
-    self.spoofSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(panel.bounds.size.width - 68.0, 117.0, 52.0, 32.0)];
-    [panel addSubview:self.spoofSwitch];
-
-    UIButton *chooseButton = GPSQButton(@"اختر هذا الموقع", GPSQColor(0, 122, 255));
-    chooseButton.frame = CGRectMake(188.0, 112.0, MAX(90.0, panel.bounds.size.width - 268.0), 42.0);
-    [chooseButton addTarget:self action:@selector(chooseCurrentLocation) forControlEvents:UIControlEventTouchUpInside];
-    [panel addSubview:chooseButton];
+    self.statusLabel = [[UILabel alloc] initWithFrame:CGRectMake(20, 224, w - 40, 24)];
+    self.statusLabel.textColor = UIColor.whiteColor;
+    self.statusLabel.font = [UIFont systemFontOfSize:13];
+    self.statusLabel.textAlignment = NSTextAlignmentCenter;
+    [self.dialogView addSubview:self.statusLabel];
 }
 
 - (BOOL)textField:(UITextField *)textField shouldChangeCharactersInRange:(NSRange)range replacementString:(NSString *)string {
     NSString *source = textField.text ?: @"";
-    NSString *newText = [[source stringByReplacingCharactersInRange:range withString:string] uppercaseString];
-    NSCharacterSet *invalid = [[NSCharacterSet alphanumericCharacterSet] invertedSet];
-    newText = [[newText componentsSeparatedByCharactersInSet:invalid] componentsJoinedByString:@""];
-    if (newText.length > 8) newText = [newText substringToIndex:8];
-    textField.text = newText;
+    NSString *n = [[source stringByReplacingCharactersInRange:range withString:string] uppercaseString];
+    n = [[n componentsSeparatedByCharactersInSet:[[NSCharacterSet alphanumericCharacterSet] invertedSet]] componentsJoinedByString:@""];
+    if (n.length > 8) n = [n substringToIndex:8];
+    textField.text = n;
     return NO;
+}
+
+- (void)pasteCode {
+    NSString *clip = UIPasteboard.generalPasteboard.string ?: @"";
+    clip = [[clip uppercaseString] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    clip = [[clip componentsSeparatedByCharactersInSet:[[NSCharacterSet alphanumericCharacterSet] invertedSet]] componentsJoinedByString:@""];
+    if (clip.length > 8) clip = [clip substringToIndex:8];
+    self.codeField.text = clip;
+    [self showCenterNotice:@"تم لصق النص"];
 }
 
 - (void)activateCode {
     NSString *code = self.codeField.text.uppercaseString ?: @"";
     if (code.length != 8) {
-        [self setActivationStatus:@"❌ الكود يجب أن يكون 8 خانات" color:GPSQColor(255, 100, 100)];
+        self.statusLabel.text = @"الكود يجب أن يكون 8 خانات";
+        self.statusLabel.textColor = GPSQColor(248, 113, 113);
+        [self showCenterNotice:@"الكود غير صحيح"];
         return;
     }
 
-    [self setActivationStatus:@"⏳ جاري التحقق من API التفعيل..." color:GPSQColor(230, 230, 230)];
+    self.statusLabel.text = @"جاري التحقق...";
+    self.statusLabel.textColor = GPSQColor(229, 231, 235);
+
+    NSString *urlString = [NSString stringWithFormat:@"%@/activate.php", GPSQ_API_BASE];
+    NSURL *url = [NSURL URLWithString:urlString];
 
     NSDictionary *payload = @{
         @"code": code,
         @"udid": GPSQDeviceID(),
+        @"device_name": UIDevice.currentDevice.name ?: @"iPhone",
+        @"app_bundle": NSBundle.mainBundle.bundleIdentifier ?: @"unknown",
+        @"app_version": GPSQ_APP_VERSION,
         @"ios_version": UIDevice.currentDevice.systemVersion ?: @"",
-        @"app_version": GPSQ_APP_VERSION
+        @"custom_identifier": @"gpsq"
     };
 
-    NSError *jsonError = nil;
-    NSData *json = [NSJSONSerialization dataWithJSONObject:payload options:0 error:&jsonError];
-    NSURL *url = [NSURL URLWithString:GPSQ_ACTIVATION_URL];
-    if (!url || !json || jsonError) {
-        [self setActivationStatus:@"❌ خطأ في تجهيز طلب التفعيل" color:GPSQColor(255, 100, 100)];
+    NSData *json = [NSJSONSerialization dataWithJSONObject:payload options:0 error:nil];
+    if (!url || !json) {
+        [self showCenterNotice:@"خطأ في الطلب"];
         return;
     }
 
-    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
-    request.HTTPMethod = @"POST";
-    request.timeoutInterval = 15.0;
-    [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
-    request.HTTPBody = json;
+    NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:url];
+    req.HTTPMethod = @"POST";
+    req.timeoutInterval = 18;
+    [req setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+    if ([GPSQ_API_KEY length] > 0) [req setValue:GPSQ_API_KEY forHTTPHeaderField:@"X-GPS-API-Key"];
+    req.HTTPBody = json;
 
-    NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+    NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithRequest:req completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
         dispatch_async(dispatch_get_main_queue(), ^{
             if (error || data.length == 0) {
-                [self setActivationStatus:@"❌ تعذر الاتصال بسيرفر التفعيل" color:GPSQColor(255, 100, 100)];
+                self.statusLabel.text = @"تعذر الاتصال بالسيرفر";
+                self.statusLabel.textColor = GPSQColor(248, 113, 113);
+                [self showCenterNotice:@"فشل الاتصال"];
                 return;
             }
 
-            NSDictionary *result = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
-            BOOL ok = [result[@"success"] boolValue] || [result[@"status"] isEqual:@"ok"] || [result[@"status"] isEqual:@"success"] || [result[@"status"] isEqual:@"active"];
+            NSDictionary *r = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+            BOOL ok = [r[@"success"] boolValue] || [r[@"status"] isEqual:@"ok"] || [r[@"status"] isEqual:@"success"] || [r[@"status"] isEqual:@"active"];
             if (ok) {
-                [[NSUserDefaults standardUserDefaults] setBool:YES forKey:@"GPSQ_Activated"];
-                [[NSUserDefaults standardUserDefaults] synchronize];
+                NSString *token = [r[@"token"] isKindOfClass:NSString.class] ? r[@"token"] : @"";
+                NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
+                [d setBool:YES forKey:@"GPSQ_Activated"];
+                [d setObject:token forKey:@"GPSQ_Token"];
+                [d synchronize];
                 self.activated = YES;
-                [self setActivationStatus:@"✅ تم التفعيل بنجاح" color:GPSQColor(80, 220, 120)];
+                [self showCenterNotice:@"تم التفعيل بنجاح"];
                 dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.45 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                    [self buildInterface];
+                    [[self.view viewWithTag:1001] removeFromSuperview];
+                    [self.dialogView removeFromSuperview];
+                    [self showFullOverlay];
                 });
                 return;
             }
 
-            NSString *message = [result[@"message"] isKindOfClass:NSString.class] ? result[@"message"] : @"الكود غير صحيح أو غير مفعل";
-            [self setActivationStatus:[NSString stringWithFormat:@"❌ %@", message] color:GPSQColor(255, 100, 100)];
+            NSString *msg = [r[@"message"] isKindOfClass:NSString.class] ? r[@"message"] : @"الكود غير مقبول";
+            self.statusLabel.text = msg;
+            self.statusLabel.textColor = GPSQColor(248, 113, 113);
+            [self showCenterNotice:msg];
         });
     }];
     [task resume];
 }
 
-- (void)setActivationStatus:(NSString *)text color:(UIColor *)color {
-    self.statusLabel.text = text;
-    self.statusLabel.textColor = color;
+- (void)showFullOverlay {
+    [self.fullOverlay removeFromSuperview];
+    self.fullOverlay = [[UIView alloc] initWithFrame:self.view.bounds];
+    self.fullOverlay.backgroundColor = GPSQColor(10, 14, 22);
+    [self.view addSubview:self.fullOverlay];
+
+    UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(110, 44, self.view.bounds.size.width - 220, 44)];
+    title.text = GPSQ_APP_NAME;
+    title.textColor = UIColor.whiteColor;
+    title.textAlignment = NSTextAlignmentCenter;
+    title.font = [UIFont boldSystemFontOfSize:26];
+    [self.fullOverlay addSubview:title];
+
+    UIButton *close = GPSQButton(@"إغلاق", GPSQColor(37, 99, 235));
+    close.frame = CGRectMake(self.view.bounds.size.width - 96, 46, 78, 42);
+    [close addTarget:self action:@selector(closeFullOverlay) forControlEvents:UIControlEventTouchUpInside];
+    [self.fullOverlay addSubview:close];
+
+    UIButton *info = GPSQButton(@"الاشتراك", GPSQColor(71, 85, 105));
+    info.frame = CGRectMake(18, 46, 90, 42);
+    [info addTarget:self action:@selector(showSubscriptionInfo) forControlEvents:UIControlEventTouchUpInside];
+    [self.fullOverlay addSubview:info];
+
+    UILabel *body = [[UILabel alloc] initWithFrame:CGRectMake(22, 120, self.view.bounds.size.width - 44, 140)];
+    body.text = @"تم تفعيل GPS Plus.\nسنكمل إضافة الخريطة والمفضلة والإعدادات بالتدريج.";
+    body.textColor = GPSQColor(220, 226, 235);
+    body.numberOfLines = 0;
+    body.textAlignment = NSTextAlignmentCenter;
+    body.font = [UIFont systemFontOfSize:18];
+    [self.fullOverlay addSubview:body];
 }
 
-- (void)changeMapType {
-    NSInteger i = self.mapTypeControl.selectedSegmentIndex;
-    self.mapView.mapType = i == 0 ? MKMapTypeStandard : (i == 1 ? MKMapTypeSatellite : MKMapTypeHybrid);
+- (void)closeFullOverlay {
+    [self.fullOverlay removeFromSuperview];
+    self.fullOverlay = nil;
 }
 
-- (void)centerMap {
-    CLLocationCoordinate2D center = self.mapView.userLocation.location.coordinate;
-    if (center.latitude == 0 && center.longitude == 0) center = self.mapView.centerCoordinate;
-    [self.mapView setRegion:MKCoordinateRegionMakeWithDistance(center, 1200.0, 1200.0) animated:YES];
+- (void)showSubscriptionInfo {
+    NSString *token = [[NSUserDefaults standardUserDefaults] stringForKey:@"GPSQ_Token"] ?: @"";
+    NSString *shortToken = token.length > 12 ? [token substringToIndex:12] : token;
+    [self showCenterNotice:[NSString stringWithFormat:@"اشتراك مفعل %@", shortToken.length ? shortToken : @""]];
 }
 
-- (void)copyUDID {
-    UIPasteboard.generalPasteboard.string = GPSQDeviceID();
-    [self showToast:@"تم نسخ UUID"];
-}
-
-- (void)focusSearch {
-    [self.searchBar becomeFirstResponder];
-}
-
-- (void)chooseCurrentLocation {
-    CLLocationCoordinate2D center = self.mapView.centerCoordinate;
-    UIPasteboard.generalPasteboard.string = [NSString stringWithFormat:@"%.6f,%.6f", center.latitude, center.longitude];
-    [self showToast:@"تم اختيار الموقع ونسخ الإحداثيات"];
-}
-
-- (void)showComingSoon {
-    [self showToast:@"سيتم تفعيل هذه الميزة لاحقًا"];
-}
-
-- (void)showToast:(NSString *)message {
-    UILabel *toast = [[UILabel alloc] initWithFrame:CGRectMake(24.0, self.rootCard.bounds.size.height - 54.0, self.rootCard.bounds.size.width - 48.0, 36.0)];
-    toast.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.76];
-    toast.textColor = UIColor.whiteColor;
-    toast.text = message;
-    toast.textAlignment = NSTextAlignmentCenter;
-    toast.font = [UIFont boldSystemFontOfSize:14.0];
-    toast.layer.cornerRadius = 12.0;
-    toast.layer.masksToBounds = YES;
-    [self.rootCard addSubview:toast];
-    [UIView animateWithDuration:0.25 delay:1.1 options:0 animations:^{ toast.alpha = 0.0; } completion:^(__unused BOOL finished) { [toast removeFromSuperview]; }];
-}
-
-- (void)closePanel {
-    self.view.window.hidden = YES;
-}
-
-- (void)searchBarSearchButtonClicked:(UISearchBar *)searchBar {
-    [searchBar resignFirstResponder];
-    NSString *query = searchBar.text ?: @"";
-    if (query.length == 0) return;
-
-    NSArray<NSString *> *parts = [query componentsSeparatedByString:@","];
-    if (parts.count == 2) {
-        double latitude = [parts[0] doubleValue];
-        double longitude = [parts[1] doubleValue];
-        if (latitude >= -90.0 && latitude <= 90.0 && longitude >= -180.0 && longitude <= 180.0) {
-            [self.mapView setRegion:MKCoordinateRegionMakeWithDistance(CLLocationCoordinate2DMake(latitude, longitude), 1200.0, 1200.0) animated:YES];
-            return;
-        }
-    }
-
-    MKLocalSearchRequest *request = [MKLocalSearchRequest new];
-    request.naturalLanguageQuery = query;
-    MKLocalSearch *localSearch = [[MKLocalSearch alloc] initWithRequest:request];
-    [localSearch startWithCompletionHandler:^(MKLocalSearchResponse *response, NSError *error) {
-        MKMapItem *item = response.mapItems.firstObject;
-        if (!item || error) return;
-        dispatch_async(dispatch_get_main_queue(), ^{
-            [self.mapView setRegion:MKCoordinateRegionMakeWithDistance(item.placemark.coordinate, 1500.0, 1500.0) animated:YES];
-        });
-    }];
+- (void)showCenterNotice:(NSString *)message {
+    UILabel *n = [[UILabel alloc] initWithFrame:CGRectMake(34, (self.view.bounds.size.height - 58) / 2, self.view.bounds.size.width - 68, 58)];
+    n.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.82];
+    n.textColor = UIColor.whiteColor;
+    n.text = message ?: @"";
+    n.textAlignment = NSTextAlignmentCenter;
+    n.font = [UIFont boldSystemFontOfSize:16];
+    n.layer.cornerRadius = 18;
+    n.layer.masksToBounds = YES;
+    [self.view addSubview:n];
+    [UIView animateWithDuration:0.25 delay:1.2 options:0 animations:^{ n.alpha = 0; } completion:^(__unused BOOL f){ [n removeFromSuperview]; }];
 }
 
 @end
@@ -402,14 +310,11 @@ static UIWindow *gpsqWindow = nil;
 
 static void GPSQShowWindow(void) {
     dispatch_async(dispatch_get_main_queue(), ^{
-        if (gpsqWindow) {
-            gpsqWindow.hidden = NO;
-            return;
-        }
+        if (gpsqWindow) { gpsqWindow.hidden = NO; return; }
         gpsqWindow = [[UIWindow alloc] initWithFrame:UIScreen.mainScreen.bounds];
-        gpsqWindow.windowLevel = UIWindowLevelAlert + 30.0;
+        gpsqWindow.windowLevel = UIWindowLevelAlert + 35;
         gpsqWindow.backgroundColor = UIColor.clearColor;
-        gpsqWindow.rootViewController = [GPSQController new];
+        gpsqWindow.rootViewController = [GPSQRootController new];
         gpsqWindow.hidden = NO;
     });
 }
