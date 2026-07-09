@@ -1,8 +1,8 @@
 # gpsq
 
-مشروع Theos نظيف لبناء أداة **gpsq / GPS Plus v1.1**.
+مشروع Theos منظم بنظام Framework لبناء أداة **gpsq / GPS Plus v1.1**.
 
-## الملفات المعتمدة
+## الهيكل
 
 ```text
 gpsq.mm
@@ -11,11 +11,25 @@ control
 .github/workflows/build.yml
 .gitignore
 README.md
+Headers/
+Core/
+UI/
+Map/
+Utils/
+Resources/
 ```
+
+## المجلدات
+
+- `Headers`: التعريفات والإعدادات العامة.
+- `Core`: إدارة التفعيل، UUID، الشبكة، التخزين، والمدير العام.
+- `UI`: ملفات الواجهة والمكونات.
+- `Map`: الخريطة، البحث، والمفضلة.
+- `Utils`: أدوات مساعدة مثل Logger.
+- `Resources`: ملفات اللغة والصور لاحقًا.
 
 ## المميزات
 
-- ملف مصدر واحد فقط: `gpsq.mm`.
 - واجهة عربية داكنة.
 - إدخال كود تفعيل من 8 خانات.
 - استخراج UDID/UUID تلقائيًا.
@@ -47,7 +61,7 @@ gpsq-DEB-Packages
 
 ## بيانات التفعيل
 
-رابط التفعيل داخل `gpsq.mm`:
+رابط التفعيل داخل `Headers/GPSQConfig.h` وداخل `gpsq.mm`:
 
 ```objc
 #define GPSQ_ACTIVATION_URL @"https://p3nd.fun/gps/api/activate.php"
