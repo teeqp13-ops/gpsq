@@ -21,10 +21,12 @@ gpsq_FILES := \
   Map/MapController.mm \
   Map/SearchController.mm \
   Map/FavoritesManager.mm \
-  Utils/Logger.mm
+  Utils/Logger.mm \
+  GPSQFramework/Core/GPSQEmployeeSwitchBridge.mm \
+  GPSQFramework/Core/GPSQSecureStore.mm
 
 gpsq_FRAMEWORKS := UIKit Foundation CoreLocation MapKit QuartzCore
-gpsq_CFLAGS := -fobjc-arc -Wno-deprecated-declarations -Wno-unused-function -IHeaders
+gpsq_CFLAGS := -fobjc-arc -Wno-deprecated-declarations -Wno-unused-function -IHeaders -IGPSQFramework/Headers
 gpsq_CCFLAGS := -std=c++17
 
 gpsq_RESOURCE_DIRS := Resources
