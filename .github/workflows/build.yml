@@ -17,6 +17,9 @@ jobs:
   build:
     name: Build gpsq DEB
     runs-on: ubuntu-latest
+    env:
+      GPSQ_API_BASE: https://ipa.p3nd.fun/server/public/api
+      GPSQ_API_KEY: ${{ secrets.GPSQ_API_KEY }}
 
     steps:
       - name: Checkout repository
@@ -36,12 +39,15 @@ jobs:
           test -f gpsq.plist
           test -f Filter.plist
           echo "Project files and filter plists are ready"
+          if [ -z "$GPSQ_API_KEY" ]; then
+            echo "::warning::GPSQ_API_KEY secret is not set. Activation requests will be rejected by the server."
+          fi
 
       - name: Build package
         run: |
           set -e
           make clean || true
-          make package FINALPACKAGE=1
+          make package FINALPACKAGE=1 GPSQ_API_BASE="$GPSQ_API_BASE" GPSQ_API_KEY="$GPSQ_API_KEY"
 
       - name: Collect build artifacts
         if: always()
