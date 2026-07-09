@@ -1,4 +1,4 @@
-name: Build gpsq Tweak
+name: Build gpsq
 
 on:
   push:
@@ -15,17 +15,23 @@ permissions:
 
 jobs:
   build:
-    name: Build DEB Package
+    name: Build gpsq DEB
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          submodules: true
 
       - name: Prepare Theos
         uses: Randomblock1/theos-action@v1
+
+      - name: Verify project files
+        run: |
+          set -e
+          test -f gpsq.mm
+          test -f Makefile
+          test -f control
+          echo "Project files are ready"
 
       - name: Build package
         run: |
@@ -37,12 +43,15 @@ jobs:
         if: always()
         run: |
           mkdir -p artifacts
-          echo "Searching for DEB files..." | tee artifacts/build-info.txt
+          echo "Repository:" > artifacts/build-info.txt
+          pwd >> artifacts/build-info.txt
+          echo "\nFiles:" >> artifacts/build-info.txt
+          find . -maxdepth 3 -type f | sort >> artifacts/build-info.txt
+          echo "\nDEB files:" >> artifacts/build-info.txt
           find . -type f -name "*.deb" -not -path "./.git/*" -print | tee artifacts/deb-list.txt
           while IFS= read -r deb; do
             [ -n "$deb" ] && cp -v "$deb" artifacts/
           done < artifacts/deb-list.txt
-          echo "Artifact folder content:" | tee -a artifacts/build-info.txt
           ls -lah artifacts | tee -a artifacts/build-info.txt
 
       - name: Upload DEB Artifacts
