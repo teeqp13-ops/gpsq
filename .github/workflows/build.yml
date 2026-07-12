@@ -30,38 +30,95 @@ jobs:
       - name: Verify project files
         run: |
           set -e
+          echo "🔍 التحقق من ملفات المشروع..."
           pwd
           ls -lah
-          test -f Makefile
-          test -f control
-          test -f gpsq.mm
-          test -f gpsq.plist
-          test -f Filter.plist
-          echo "Project files and filter plists are ready"
+          
+          # التحقق من الملفات المطلوبة
+          required_files=("Makefile" "control" "gpsq.mm" "gpsq.plist" "Filter.plist")
+          for file in "${required_files[@]}"; do
+            if [ ! -f "$file" ]; then
+              echo "❌ خطأ: الملف المطلوب '$file' غير موجود"
+              exit 1
+            fi
+            echo "✅ تم العثور على: $file"
+          done
+          
+          echo "✨ جميع ملفات المشروع موجودة وجاهزة"
+          
+          # التحقق من السر
           if [ -z "$GPSQ_API_KEY" ]; then
-            echo "::warning::GPSQ_API_KEY secret is not set. Activation requests will be rejected by the server."
+            echo "⚠️ تحذير: السر GPSQ_API_KEY غير مُعيّن"
+            echo "::warning::Activation requests will be rejected by the server"
+          else
+            echo "✅ تم تعيين GPSQ_API_KEY"
           fi
 
       - name: Build package
         run: |
           set -e
+          echo "🔨 بدء البناء..."
+          
+          # تنظيف الملفات القديمة
           make clean || true
-          make package FINALPACKAGE=1 GPSQ_API_BASE="$GPSQ_API_BASE" GPSQ_API_KEY="$GPSQ_API_KEY"
+          
+          # بناء الحزمة
+          echo "📦 تجميع حزمة DEB..."
+          make package FINALPACKAGE=1 \
+            GPSQ_API_BASE="$GPSQ_API_BASE" \
+            GPSQ_API_KEY="$GPSQ_API_KEY"
+          
+          echo "✅ تم البناء بنجاح"
+        
+      - name: Verify build output
+        if: success()
+        run: |
+          echo "🔍 التحقق من ملفات البناء..."
+          deb_count=$(find . -type f -name "*.deb" -not -path "./.git/*" | wc -l)
+          
+          if [ "$deb_count" -eq 0 ]; then
+            echo "❌ خطأ: لم يتم إنشاء ملفات DEB"
+            exit 1
+          fi
+          
+          echo "✅ تم إنشاء $deb_count ملف(ات) DEB"
+          find . -type f -name "*.deb" -not -path "./.git/*" -exec ls -lh {} \;
 
       - name: Collect build artifacts
         if: always()
         run: |
           mkdir -p artifacts
-          echo "Repository:" > artifacts/build-info.txt
+          
+          echo "📋 جمع معلومات البناء..."
+          {
+            echo "=== معلومات البناء ==="
+            echo "التاريخ: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+            echo "الفرع: $(git rev-parse --abbrev-ref HEAD)"
+            echo "آخر التزام: $(git log -1 --pretty=%H)"
+            echo ""
+            echo "=== الملفات الموجودة ==="
+          } > artifacts/build-info.txt
+          
           pwd >> artifacts/build-info.txt
-          echo "\nFiles:" >> artifacts/build-info.txt
-          find . -maxdepth 4 -type f | sort >> artifacts/build-info.txt
-          echo "\nDEB files:" >> artifacts/build-info.txt
-          find . -type f -name "*.deb" -not -path "./.git/*" -print | tee artifacts/deb-list.txt
-          while IFS= read -r deb; do
-            [ -n "$deb" ] && cp -v "$deb" artifacts/
-          done < artifacts/deb-list.txt
-          ls -lah artifacts | tee -a artifacts/build-info.txt
+          echo "" >> artifacts/build-info.txt
+          find . -maxdepth 4 -type f -not -path "./.git/*" | sort >> artifacts/build-info.txt
+          
+          echo "" >> artifacts/build-info.txt
+          echo "=== ملفات DEB المُنتجة ===" >> artifacts/build-info.txt
+          
+          # جمع ملفات DEB
+          find . -type f -name "*.deb" -not -path "./.git/*" | while read -r deb; do
+            echo "نسخ: $deb"
+            cp -v "$deb" artifacts/
+            echo "$deb" >> artifacts/deb-list.txt
+          done
+          
+          # عرض المعلومات
+          echo "" >> artifacts/build-info.txt
+          echo "=== حجم الملفات ===" >> artifacts/build-info.txt
+          ls -lh artifacts/ >> artifacts/build-info.txt
+          
+          echo "✅ تم جمع Artifacts"
 
       - name: Upload DEB Artifacts
         if: always()
@@ -71,3 +128,14 @@ jobs:
           path: artifacts/
           if-no-files-found: warn
           retention-days: 30
+
+      - name: Publish build result
+        if: always()
+        run: |
+          if [ "${{ job.status }}" == "success" ]; then
+            echo "✅ البناء نجح بنجاح!"
+            echo "📦 الحزم جاهزة للتحميل"
+          else
+            echo "❌ البناء فشل"
+            exit 1
+          fi
