@@ -20,7 +20,6 @@ jobs:
     env:
       GPSQ_API_BASE: https://ipa.p3nd.fun/server/api
       GPSQ_API_KEY: ${{ secrets.GPSQ_API_KEY }}
-o
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
