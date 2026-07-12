@@ -18,7 +18,7 @@ jobs:
     name: Build gpsq DEB
     runs-on: ubuntu-latest
     env:
-      GPSQ_API_BASE: https://ipa.p3nd.fun/server/public/api
+      GPSQ_API_BASE: https://ipa.p3nd.fun/gps/api
       GPSQ_API_KEY: ${{ secrets.GPSQ_API_KEY }}
 
     steps:
