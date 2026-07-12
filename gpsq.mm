@@ -7,9 +7,6 @@
 #ifndef GPSQ_API_BASE
 #define GPSQ_API_BASE @"https://ipa.p3nd.fun/server/public/api"
 #endif
-#ifndef GPSQ_API_KEY
-#define GPSQ_API_KEY @""
-#endif
 
 #define GPSQ_APP_NAME @"GPS Plus"
 #define GPSQ_APP_VERSION @"1.1"
