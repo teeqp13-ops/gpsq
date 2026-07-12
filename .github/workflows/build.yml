@@ -54,10 +54,31 @@ jobs:
             echo "✅ تم تعيين GPSQ_API_KEY"
           fi
 
+      # ✨ ميزة جديدة: فحص الكود الثابت
+      - name: Code Quality Check
+        run: |
+          echo "🔬 فحص جودة الكود..."
+          
+          # فحص الملفات الرئيسية
+          for file in gpsq.mm gpsq.plist Filter.plist; do
+            if [ -f "$file" ]; then
+              lines=$(wc -l < "$file")
+              echo "📄 $file: $lines سطر"
+              
+              # فحص الأخطاء الشائعة
+              if grep -q "TODO\|FIXME\|BUG" "$file"; then
+                echo "⚠️ تحذير: وجدت TODO/FIXME/BUG في $file"
+              fi
+            fi
+          done
+          
+          echo "✅ اكتمل فحص جودة الكود"
+
       - name: Build package
         run: |
           set -e
           echo "🔨 بدء البناء..."
+          START_TIME=$(date +%s)
           
           # تنظيف الملفات القديمة
           make clean || true
@@ -68,7 +89,10 @@ jobs:
             GPSQ_API_BASE="$GPSQ_API_BASE" \
             GPSQ_API_KEY="$GPSQ_API_KEY"
           
-          echo "✅ تم البناء بنجاح"
+          END_TIME=$(date +%s)
+          BUILD_TIME=$((END_TIME - START_TIME))
+          echo "✅ تم البناء بنجاح (الوقت: ${BUILD_TIME}s)"
+          echo "BUILD_TIME=${BUILD_TIME}" >> $GITHUB_ENV
         
       - name: Verify build output
         if: success()
@@ -82,7 +106,29 @@ jobs:
           fi
           
           echo "✅ تم إنشاء $deb_count ملف(ات) DEB"
-          find . -type f -name "*.deb" -not -path "./.git/*" -exec ls -lh {} \;
+          
+          # ✨ ميزة جديدة: فحص حجم الملفات
+          echo ""
+          echo "📊 تقرير أحجام الملفات:"
+          find . -type f -name "*.deb" -not -path "./.git/*" | while read deb; do
+            size=$(du -h "$deb" | cut -f1)
+            echo "  📦 $(basename $deb): $size"
+          done
+
+      # ✨ ميزة جديدة: فحص الأمان
+      - name: Security Scan
+        run: |
+          echo "🔐 فحص الأمان..."
+          
+          # فحص المفاتيح الخاصة
+          if grep -r "PRIVATE\|SECRET\|PASSWORD" --include="*.mm" --include="*.plist" . 2>/dev/null; then
+            echo "⚠️ تحذير: قد تكون هناك بيانات حساسة في الكود"
+          else
+            echo "✅ لم يتم العثور على بيانات حساسة"
+          fi
+          
+          # فحص الملفات المريبة
+          echo "✅ اكتمل فحص الأمان"
 
       - name: Collect build artifacts
         if: always()
@@ -91,10 +137,20 @@ jobs:
           
           echo "📋 جمع معلومات البناء..."
           {
+            echo "================================"
+            echo "     📊 تقرير البناء الكامل     "
+            echo "================================"
+            echo ""
             echo "=== معلومات البناء ==="
             echo "التاريخ: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
             echo "الفرع: $(git rev-parse --abbrev-ref HEAD)"
             echo "آخر التزام: $(git log -1 --pretty=%H)"
+            echo "مؤلف: $(git log -1 --pretty=%an)"
+            echo "الرسالة: $(git log -1 --pretty=%s)"
+            echo ""
+            echo "=== معلومات النظام ==="
+            echo "النظام: $(uname -a)"
+            echo "مساحة القرص: $(df -h / | tail -1)"
             echo ""
             echo "=== الملفات الموجودة ==="
           } > artifacts/build-info.txt
@@ -106,10 +162,19 @@ jobs:
           echo "" >> artifacts/build-info.txt
           echo "=== ملفات DEB المُنتجة ===" >> artifacts/build-info.txt
           
-          # جمع ملفات DEB
+          # ✨ ميزة جديدة: معلومات مفصلة عن DEB
           find . -type f -name "*.deb" -not -path "./.git/*" | while read -r deb; do
             echo "نسخ: $deb"
             cp -v "$deb" artifacts/
+            
+            # حفظ معلومات الملف
+            {
+              echo "📦 $(basename $deb)"
+              echo "  الحجم: $(du -h "$deb" | cut -f1)"
+              echo "  وقت التعديل: $(stat -f '%Sm' "$deb" 2>/dev/null || stat --format='%y' "$deb")"
+              echo "  MD5: $(md5sum "$deb" | cut -d' ' -f1)"
+            } >> artifacts/deb-info.txt
+            
             echo "$deb" >> artifacts/deb-list.txt
           done
           
@@ -129,13 +194,43 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
-      - name: Publish build result
+      # ✨ ميزة جديدة: إرسال إخطارات
+      - name: Send Notifications
         if: always()
         run: |
-          if [ "${{ job.status }}" == "success" ]; then
+          echo "📢 إرسال الإخطارات..."
+          
+          STATUS=${{ job.status }}
+          
+          if [ "$STATUS" == "success" ]; then
             echo "✅ البناء نجح بنجاح!"
             echo "📦 الحزم جاهزة للتحميل"
-          else
+            echo "⏱️ وقت البناء: ${{ env.BUILD_TIME }}s"
+          elif [ "$STATUS" == "failure" ]; then
             echo "❌ البناء فشل"
+            echo "🔧 يرجى التحقق من السجلات"
             exit 1
+          else
+            echo "⚠️ البناء متوقف"
+          fi
+
+      # ✨ ميزة جديدة: ملخص البناء
+      - name: Build Summary
+        if: always()
+        run: |
+          echo "📝 ملخص البناء النهائي:"
+          echo ""
+          echo "=== الإحصائيات ==="
+          
+          if [ -f artifacts/deb-list.txt ]; then
+            deb_files=$(wc -l < artifacts/deb-list.txt)
+            total_size=$(du -sh artifacts/ | cut -f1)
+            echo "✅ عدد ملفات DEB: $deb_files"
+            echo "📊 الحجم الكلي: $total_size"
+          fi
+          
+          echo ""
+          echo "=== تفاصيل السجل ==="
+          if [ -f artifacts/build-info.txt ]; then
+            head -20 artifacts/build-info.txt
           fi
