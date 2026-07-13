@@ -195,7 +195,7 @@ function e(string $s): string
       <?php if ($result['ok']): ?>
         <?= $result['status'] === 'linked' ? '✅' : '🟢' ?>
       <?php else: ?>
-        <?= $result['status'] ?? '' === 'expired' ? '⏰' : '❌' ?>
+        <?= (($result['status'] ?? '') === 'expired') ? '⏰' : '❌' ?>
       <?php endif; ?>
       <?= e($result['msg']) ?>
     </div>
