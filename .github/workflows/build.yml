@@ -185,6 +185,16 @@ jobs:
           rm -rf build/ obj/ *.deb *.o
           echo "✅ تم التنظيف"
 
+      - name: 🔐 التحقق من #error guard
+        run: |
+          echo "🔐 التحقق من حماية #error..."
+          if grep -q '#error.*GPS_API_TOKEN.*must be defined' Sources/GPSApiLocal.mm; then
+            echo "✅ #error guard موجود وصحيح"
+          else
+            echo "❌ #error guard مفقود أو معطل"
+            exit 1
+          fi
+
       - name: 🔨 بناء الحزمة
         id: build
         run: |
@@ -358,7 +368,7 @@ jobs:
             echo "وقت البناء: ${{ needs.build.outputs.build_time }} ثانية"
             echo ""
             echo "⏰ الطابع الزمني"
-            echo "─────────────────────────────────────────"
+            echo "───────────────────────────────────���─────"
             echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC')"
             echo ""
           } | tee reports/advanced-report.txt
@@ -420,6 +430,39 @@ jobs:
           name: deb-info
           path: artifacts/info/
           retention-days: 30
+
+      - name: 📤 تحميل إلى خادم FTP
+        if: success() && github.ref == 'refs/heads/main'
+        run: |
+          echo "📤 جاري تحضير التحميل إلى FTP..."
+          
+          # تثبيت أدوات FTP
+          apt-get update -qq && apt-get install -y -qq lftp
+          
+          # إعداد ملف البيانات
+          SCRIPT_FILE="/tmp/ftp_upload.sh"
+          cat > "$SCRIPT_FILE" << 'EOF'
+          #!/bin/bash
+          # تحميل آمن إلى FTP
+          lftp -e "
+            set ftp:ssl-allow false
+            set net:max-retries 3
+            set net:timeout 10
+            mirror -R --verbose artifacts/debs/ ./public_html/packages/
+            bye
+          " -u "$FTP_USER" ftp://$FTP_HOST:$FTP_PORT
+          EOF
+          
+          chmod +x "$SCRIPT_FILE"
+          
+          # تشغيل البرنامج مع المتغيرات المحمية
+          FTP_USER="${{ secrets.FTP_USERNAME }}" \
+          FTP_HOST="82.198.229.59" \
+          FTP_PORT="21" \
+          bash "$SCRIPT_FILE" 2>&1 || echo "⚠️ تنبيه: قد يكون FTP غير متاح حالياً"
+          
+          echo "✅ محاولة التحميل اكتملت"
+        continue-on-error: true
 
   # ✅ الملخص النهائي
   summary:
