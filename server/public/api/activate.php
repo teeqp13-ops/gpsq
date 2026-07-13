@@ -25,6 +25,8 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     jsonResponse(['success' => false, 'error' => 'يُسمح فقط بطلبات POST'], 405);
 }
 
+requireApiKey();
+
 // قراءة البيانات من JSON body أو POST form
 $input       = json_decode(file_get_contents('php://input'), true) ?: [];
 $code        = trim($input['code']        ?? $_POST['code']        ?? '');
