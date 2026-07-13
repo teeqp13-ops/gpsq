@@ -3,6 +3,7 @@
 #import <QuartzCore/QuartzCore.h>
 #import <MapKit/MapKit.h>
 #import <CoreLocation/CoreLocation.h>
+#import "UI/GPSAnimatedButton.h"
 
 #ifndef GPSQ_API_BASE
 #define GPSQ_API_BASE @"https://ipa.p3nd.fun/server/public/api"
@@ -67,7 +68,7 @@ static NSString *GPSQDateText(NSDate *date) {
 }
 
 @interface GPSQRootController : UIViewController <UITextFieldDelegate, MKMapViewDelegate>
-@property(nonatomic,strong) UIButton *floatingButton;
+@property(nonatomic,strong) GPSAnimatedButton *floatingButton;
 @property(nonatomic,strong) UIView *dialogView;
 @property(nonatomic,strong) UITextField *codeField;
 @property(nonatomic,strong) UILabel *statusLabel;
@@ -75,7 +76,6 @@ static NSString *GPSQDateText(NSDate *date) {
 @property(nonatomic,strong) MKMapView *mapView;
 @property(nonatomic,strong) UISegmentedControl *mapTypeControl;
 @property(nonatomic,assign) BOOL activated;
-@property(nonatomic,assign) CGPoint dragStart;
 @end
 
 @implementation GPSQRootController
@@ -108,28 +108,10 @@ static NSString *GPSQDateText(NSDate *date) {
 }
 
 - (void)buildFloatingIcon {
-    self.floatingButton = GPSQButton(@"GPS", GPSQColor(22, 163, 74));
-    self.floatingButton.frame = CGRectMake(24, 180, 68, 68);
-    self.floatingButton.layer.cornerRadius = 34;
-    self.floatingButton.layer.shadowColor = UIColor.blackColor.CGColor;
-    self.floatingButton.layer.shadowOpacity = 0.35;
-    self.floatingButton.layer.shadowRadius = 12;
-    self.floatingButton.layer.shadowOffset = CGSizeMake(0, 6);
+    self.floatingButton = [[GPSAnimatedButton alloc] initWithActivated:self.activated];
+    self.floatingButton.frame = CGRectMake(18, 72, 72, 72);
     [self.floatingButton addTarget:self action:@selector(floatingTapped) forControlEvents:UIControlEventTouchUpInside];
-    UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handleDrag:)];
-    [self.floatingButton addGestureRecognizer:pan];
     [self.view addSubview:self.floatingButton];
-}
-
-- (void)handleDrag:(UIPanGestureRecognizer *)pan {
-    CGPoint t = [pan translationInView:self.view];
-    if (pan.state == UIGestureRecognizerStateBegan) self.dragStart = self.floatingButton.center;
-    CGPoint c = CGPointMake(self.dragStart.x + t.x, self.dragStart.y + t.y);
-    CGFloat hw = self.floatingButton.bounds.size.width / 2.0;
-    CGFloat hh = self.floatingButton.bounds.size.height / 2.0;
-    c.x = MAX(hw, MIN(self.view.bounds.size.width - hw, c.x));
-    c.y = MAX(hh, MIN(self.view.bounds.size.height - hh, c.y));
-    self.floatingButton.center = c;
 }
 
 - (void)floatingTapped {
@@ -251,8 +233,9 @@ static NSString *GPSQDateText(NSDate *date) {
                 [d setObject:expires forKey:@"GPSQ_ExpiresAt"];
                 [d synchronize];
                 self.activated = YES;
+                [self.floatingButton setActivatedState:YES animated:YES];
                 [self showCenterNotice:@"تم التفعيل بنجاح"];
-                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.45 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.85 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
                     [[self.view viewWithTag:1001] removeFromSuperview];
                     [self.dialogView removeFromSuperview];
                     [self showFullOverlay];
