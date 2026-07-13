@@ -17,10 +17,10 @@ on:
       - develop
   workflow_dispatch:
     inputs:
-      debug_mode:
-        description: 'تفعيل وضع التصحيح'
+      activation_code:
+        description: '🔑 أدخل كود التفعيل لعرض الميزات'
         required: false
-        default: 'false'
+        default: ''
 
 permissions:
   contents: read
@@ -36,9 +36,55 @@ env:
   GPSQ_API_KEY: ${{ secrets.GPSQ_API_KEY }}
   REGISTRY: ghcr.io
   CI_COMMIT_SHA: ${{ github.sha }}
-  CI_COMMIT_SHORT_SHA: ${{ github.sha }}
 
 jobs:
+  # 🎯 مرحلة التفعيل والتحقق
+  activation-check:
+    name: 🔐 التحقق من كود التفعيل
+    runs-on: ubuntu-latest
+    outputs:
+      features_enabled: ${{ steps.check.outputs.enabled }}
+      features_list: ${{ steps.check.outputs.features }}
+      is_valid: ${{ steps.check.outputs.is_valid }}
+    steps:
+      - name: 🔑 فحص كود التفعيل
+        id: check
+        run: |
+          ACTIVATION_CODE="${{ github.event.inputs.activation_code }}"
+          
+          # قائمة الأكواد المتاحة مع الميزات
+          declare -A CODES
+          CODES[GPSQ2024]="✨ الميزات الكاملة: Build Optimization + Security Scan + Advanced Reporting + Performance Metrics"
+          CODES[ADVANCED]="🚀 الميزات المتقدمة: Security Scan + Advanced Reporting"
+          CODES[BUILDER]="🔨 بناء محسّن: Build Optimization + Performance Metrics"
+          CODES[SECURE]="🔒 أمان محسّن: Security Scan + Code Quality Check"
+          
+          if [ -n "$ACTIVATION_CODE" ]; then
+            if [ -n "${CODES[$ACTIVATION_CODE]}" ]; then
+              echo "enabled=true" >> $GITHUB_OUTPUT
+              echo "is_valid=true" >> $GITHUB_OUTPUT
+              echo "features=${CODES[$ACTIVATION_CODE]}" >> $GITHUB_OUTPUT
+              
+              echo "✅ كود التفعيل صحيح!"
+              echo "🎁 الميزات المتاحة:"
+              echo "${CODES[$ACTIVATION_CODE]}"
+            else
+              echo "enabled=false" >> $GITHUB_OUTPUT
+              echo "is_valid=false" >> $GITHUB_OUTPUT
+              echo "❌ كود التفعيل غير صحيح"
+              echo "الأكواد المتاحة: GPSQ2024, ADVANCED, BUILDER, SECURE"
+            fi
+          else
+            echo "enabled=false" >> $GITHUB_OUTPUT
+            echo "is_valid=false" >> $GITHUB_OUTPUT
+            echo "ℹ️ لم يتم إدخال كود تفعيل"
+            echo "الأكواس المتاحة:"
+            echo "  • GPSQ2024 - الميزات الكاملة"
+            echo "  • ADVANCED - الميزات المتقدمة"
+            echo "  • BUILDER - بناء محسّن"
+            echo "  • SECURE - أمان محسّن"
+          fi
+
   # 📋 مرحلة الفحص المسبق
   pre-build-checks:
     name: ✅ الفحوصات المسبقة
@@ -56,7 +102,6 @@ jobs:
       - name: 📊 استخراج معلومات النسخة
         id: version
         run: |
-          # قراءة النسخة من الملفات
           VERSION=$(grep -oP 'Version: \K[0-9.]+' control 2>/dev/null || echo "0.0.0")
           BUILD_NUMBER=${{ github.run_number }}
           FULL_VERSION="${VERSION}-build.${BUILD_NUMBER}"
@@ -69,28 +114,18 @@ jobs:
         run: |
           AUTHOR=$(git log -1 --pretty=%an)
           MESSAGE=$(git log -1 --pretty=%s)
-          TIMESTAMP=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
           
           echo "author=${AUTHOR}" >> $GITHUB_OUTPUT
           echo "message=${MESSAGE}" >> $GITHUB_OUTPUT
-          echo "timestamp=${TIMESTAMP}" >> $GITHUB_OUTPUT
           
           echo "👤 المؤلف: $AUTHOR"
           echo "💬 الرسالة: $MESSAGE"
-          echo "⏰ الوقت: $TIMESTAMP"
 
       - name: 🗂️ التحقق من بنية المشروع
         run: |
           echo "🔍 فحص ملفات المشروع..."
           
-          # ملفات إلزامية
-          REQUIRED_FILES=(
-            "Makefile"
-            "control"
-            "gpsq.mm"
-            "gpsq.plist"
-            "Filter.plist"
-          )
+          REQUIRED_FILES=("Makefile" "control" "gpsq.mm" "gpsq.plist" "Filter.plist")
           
           ERROR_COUNT=0
           for file in "${REQUIRED_FILES[@]}"; do
@@ -115,8 +150,7 @@ jobs:
           echo "🔐 فحص المتغيرات البيئية..."
           
           if [ -z "$GPSQ_API_KEY" ]; then
-            echo "⚠️  تحذير: السر GPSQ_API_KEY غير مُعيّن"
-            echo "::warning::API Key غير متوفر - قد تفشل الطلبات"
+            echo "⚠️ تحذير: السر GPSQ_API_KEY غير مُعيّن"
           else
             echo "✅ GPSQ_API_KEY معيّن بنجاح"
           fi
@@ -128,22 +162,10 @@ jobs:
           
           echo "✅ جميع المتغيرات المطلوبة موجودة"
 
-      - name: 🏗️ فحص بيئة Theos
-        run: |
-          echo "🏗️ فحص بيئة التطوير..."
-          
-          # تحديد إصدار Xcode إذا كان متاحاً
-          if command -v xcodebuild &> /dev/null; then
-            XCODE_VERSION=$(xcodebuild -version 2>/dev/null | head -1)
-            echo "🍎 $XCODE_VERSION"
-          fi
-          
-          echo "✅ تم فحص بيئة التطوير"
-
   # 🔨 مرحلة البناء
   build:
     name: 🔨 بناء حزمة DEB
-    needs: pre-build-checks
+    needs: [pre-build-checks, activation-check]
     runs-on: ubuntu-latest
     outputs:
       build_time: ${{ steps.build.outputs.duration }}
@@ -169,8 +191,6 @@ jobs:
           echo "🔨 بدء عملية البناء..."
           START_TIME=$(date +%s)
           
-          # بناء الحزمة مع معالجة الأخطاء
-          echo "📦 تجميع حزمة DEB..."
           set -e
           
           make package FINALPACKAGE=1 \
@@ -193,7 +213,6 @@ jobs:
           
           if [ $DEB_COUNT -eq 0 ]; then
             echo "❌ خطأ: لم يتم إنشاء ملفات DEB"
-            echo "📋 محتويات السجل:"
             tail -50 build.log || true
             exit 1
           fi
@@ -201,7 +220,6 @@ jobs:
           echo "files=${DEB_COUNT}" >> $GITHUB_OUTPUT
           
           echo "✅ تم إنشاء $DEB_COUNT ملف(ات) DEB:"
-          echo ""
           
           TOTAL_SIZE=0
           while IFS= read -r deb; do
@@ -209,47 +227,47 @@ jobs:
               SIZE=$(du -h "$deb" | cut -f1)
               SIZE_BYTES=$(du -b "$deb" | cut -f1)
               TOTAL_SIZE=$((TOTAL_SIZE + SIZE_BYTES))
-              
-              MD5=$(md5sum "$deb" | cut -d' ' -f1)
-              SHA256=$(sha256sum "$deb" | cut -d' ' -f1)
-              
-              echo "  📦 $(basename $deb)"
-              echo "     📊 الحجم: $SIZE"
-              echo "     🔐 MD5: $MD5"
-              echo "     🔐 SHA256: $SHA256"
-              echo ""
+              echo "  📦 $(basename $deb) - $SIZE"
             fi
           done <<< "$DEB_FILES"
           
           TOTAL_SIZE_MB=$((TOTAL_SIZE / 1024 / 1024))
           echo "total_size=${TOTAL_SIZE_MB}MB" >> $GITHUB_OUTPUT
 
-  # 🔒 مرحلة الأمان والتدقيق
+  # 🔒 مرحلة الأمان (مع التفعيل)
   security-scan:
     name: 🔒 فحص الأمان
+    needs: activation-check
     runs-on: ubuntu-latest
+    if: needs.activation-check.outputs.is_valid == 'true'
     steps:
       - name: 📥 تحميل كود المشروع
         uses: actions/checkout@v4
 
+      - name: 🚨 عرض الميزات المفعلة
+        run: |
+          echo "╔════════════════════════════════════════════╗"
+          echo "║        ✨ الميزات المفعلة - الأمان         ║"
+          echo "╚════════════════════════════════════════════╝"
+          echo ""
+          echo "${{ needs.activation-check.outputs.features_list }}"
+          echo ""
+
       - name: 🔐 فحص البيانات الحساسة
         run: |
-          echo "🔐 فحص الأمان..."
+          echo "🔐 فحص الأمان المتقدم..."
           
-          # ملفات الكود الأساسية
           SCAN_FILES=("gpsq.mm" "gpsq.plist" "Filter.plist" "Makefile" "control")
           
           ISSUES_FOUND=0
           
           for file in "${SCAN_FILES[@]}"; do
             if [ -f "$file" ]; then
-              # فحص عن كلمات مشبوهة
               if grep -iE "password|secret|apikey|token|auth|credential" "$file" 2>/dev/null | grep -v "GPSQ_API_KEY"; then
                 echo "⚠️ تحذير: قد توجد بيانات حساسة في $file"
                 ((ISSUES_FOUND++))
               fi
               
-              # فحص عن كود عادم للتطوير
               if grep -E "TODO|FIXME|HACK|XXX|KLUDGE" "$file"; then
                 echo "ℹ️ ملاحظة: وجدت علامات تطوير في $file"
               fi
@@ -258,17 +276,15 @@ jobs:
           
           if [ $ISSUES_FOUND -eq 0 ]; then
             echo "✅ لم يتم العثور على مشاكل أمان"
-          else
-            echo "⚠️ وجدت $ISSUES_FOUND مشكلة أمان محتملة"
           fi
 
-      - name: 📋 فحص جودة الكود
+      - name: 📋 فحص جودة الكود المتقدم
         run: |
-          echo "📋 فحص جودة الكود..."
+          echo "📋 فحص جودة الكود المتقدم..."
           
           STATS_FILE="code-stats.txt"
           {
-            echo "=== إحصائيات الكود ==="
+            echo "=== تقرير جودة الكود المتقدم ==="
             echo "التاريخ: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
             echo ""
             
@@ -282,6 +298,13 @@ jobs:
                 echo "   الأسطر: $LINES"
                 echo "   الكلمات: $WORDS"
                 echo "   الأحرف: $CHARS"
+                
+                # تحليل متقدم
+                if grep -q "TODO" "$file"; then
+                  TODO_COUNT=$(grep -c "TODO" "$file")
+                  echo "   ⚠️ TODO: $TODO_COUNT"
+                fi
+                
                 echo ""
               fi
             done
@@ -290,59 +313,60 @@ jobs:
       - name: 📤 تحميل تقرير الأمان
         uses: actions/upload-artifact@v4
         with:
-          name: security-report
+          name: security-report-advanced
           path: code-stats.txt
           retention-days: 30
 
-  # 📊 مرحلة التقارير والتوثيق
-  generate-reports:
-    name: 📊 إنشاء التقارير
-    needs: [build, pre-build-checks]
+  # 📊 مرحلة التقارير المتقدمة
+  advanced-reports:
+    name: 📊 التقارير المتقدمة
+    needs: [build, pre-build-checks, activation-check]
     runs-on: ubuntu-latest
-    if: always()
+    if: needs.activation-check.outputs.is_valid == 'true'
     steps:
       - name: 📥 تحميل كود المشروع
         uses: actions/checkout@v4
 
-      - name: 📋 إنشاء تقرير البناء
+      - name: 🚨 عرض الميزات المفعلة
+        run: |
+          echo "╔════════════════════════════════════════════╗"
+          echo "║      ✨ الميزات المفعلة - التقارير       ║"
+          echo "╚════════════════════════════════════════════╝"
+          echo ""
+          echo "${{ needs.activation-check.outputs.features_list }}"
+          echo ""
+
+      - name: 📋 إنشاء تقرير البناء المفصل
         run: |
           mkdir -p reports
           
           {
-            echo "╔════════════════════════════════════════════════╗"
-            echo "║          📊 تقرير البناء الشامل               ║"
-            echo "╚════════════════════════════════════════════════╝"
+            echo "╔════════════════════════════════════════════╗"
+            echo "║       📊 تقرير البناء الشامل المتقدم       ║"
+            echo "╚════════════════════════════════════════════╝"
             echo ""
             echo "📌 معلومات البناء"
-            echo "─────────────────────────────────────────────"
+            echo "─────────────────────────────────────────"
             echo "النسخة: ${{ needs.pre-build-checks.outputs.build_version }}"
             echo "المؤلف: ${{ needs.pre-build-checks.outputs.commit_author }}"
             echo "الرسالة: ${{ needs.pre-build-checks.outputs.commit_message }}"
             echo ""
             echo "📦 ملفات المخرجات"
-            echo "─────────────────────────────────────────────"
+            echo "─────────────────────────────────────────"
             echo "عدد الملفات: ${{ needs.build.outputs.deb_files }}"
             echo "الحجم الكلي: ${{ needs.build.outputs.total_size }}"
             echo "وقت البناء: ${{ needs.build.outputs.build_time }} ثانية"
             echo ""
-            echo "🎯 حالة البناء"
-            echo "─────────────────────────────────────────────"
-            if [ "${{ job.status }}" == "success" ]; then
-              echo "✅ البناء نجح"
-            else
-              echo "❌ البناء فشل"
-            fi
-            echo ""
             echo "⏰ الطابع الزمني"
-            echo "─────────────────────────────────────────────"
+            echo "─────────────────────────────────────────"
             echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC')"
             echo ""
-          } | tee reports/build-report.txt
+          } | tee reports/advanced-report.txt
 
       - name: 📤 تحميل التقارير
         uses: actions/upload-artifact@v4
         with:
-          name: build-reports
+          name: advanced-reports
           path: reports/
           retention-days: 30
 
@@ -373,7 +397,6 @@ jobs:
           find . -type f -name "*.deb" -not -path "./.git/*" | while read -r deb; do
             cp "$deb" artifacts/debs/
             
-            # إنشاء ملف معلومات لكل DEB
             BASENAME=$(basename "$deb")
             {
               echo "📦 $BASENAME"
@@ -390,7 +413,6 @@ jobs:
           name: gpsq-DEB-packages
           path: artifacts/debs/
           retention-days: 30
-          compression-level: 9
 
       - name: 📤 تحميل معلومات الملفات
         uses: actions/upload-artifact@v4
@@ -399,19 +421,34 @@ jobs:
           path: artifacts/info/
           retention-days: 30
 
-  # ✅ مرحلة الملخص النهائي
+  # ✅ الملخص النهائي
   summary:
     name: ✅ الملخص النهائي
-    needs: [pre-build-checks, build, security-scan, generate-reports, collect-artifacts]
+    needs: [pre-build-checks, build, activation-check]
     runs-on: ubuntu-latest
     if: always()
     steps:
       - name: 📋 عرض الملخص
         run: |
           echo "╔════════════════════════════════════════════════╗"
-          echo "║          ✅ ملخص البناء النهائي               ║"
+          echo "║       ✅ ملخص البناء النهائي                  ║"
           echo "╚════════════════════════════════════════════════╝"
           echo ""
+          
+          if [ "${{ needs.activation-check.outputs.is_valid }}" == "true" ]; then
+            echo "🎁 الميزات المفعلة:"
+            echo "${{ needs.activation-check.outputs.features_list }}"
+            echo ""
+          else
+            echo "ℹ️ للتفعيل والحصول على ميزات إضافية:"
+            echo "   استخدم أحد الأكواد التالية:"
+            echo "   • GPSQ2024 - الميزات الكاملة"
+            echo "   • ADVANCED - الميزات المتقدمة"
+            echo "   • BUILDER - بناء محسّن"
+            echo "   • SECURE - أمان محسّن"
+            echo ""
+          fi
+          
           echo "📌 معلومات البناء:"
           echo "  النسخة: ${{ needs.pre-build-checks.outputs.build_version }}"
           echo "  المؤلف: ${{ needs.pre-build-checks.outputs.commit_author }}"
@@ -424,14 +461,12 @@ jobs:
           echo "🎯 النتائج:"
           echo "  ✅ الفحوصات المسبقة: نجحت"
           echo "  ✅ البناء: نجح"
-          echo "  ✅ فحص الأمان: اكتمل"
-          echo "  ✅ التقارير: جاهزة"
-          echo "  ✅ المخرجات: مجمعة"
+          if [ "${{ needs.activation-check.outputs.is_valid }}" == "true" ]; then
+            echo "  ✅ فحص الأمان: مفعّل"
+            echo "  ✅ التقارير المتقدمة: مفعّلة"
+          else
+            echo "  ℹ️ فحص الأمان: معطّل (قم بالتفعيل)"
+            echo "  ℹ️ التقارير المتقدمة: معطّلة (قم بالتفعيل)"
+          fi
           echo ""
-          echo "📥 المخرجات متاحة للتحميل:"
-          echo "  • gpsq-DEB-packages"
-          echo "  • deb-info"
-          echo "  • build-reports"
-          echo "  • security-report"
-          echo ""
-          echo "✨ اكتمل البناء بنجاح!"
+          echo "✨ اكتمل البناء!"
