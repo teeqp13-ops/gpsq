@@ -11,12 +11,29 @@ require_once __DIR__ . '/api/config.php';
 
 session_start();
 
+// توليد CSRF token للجلسة إن لم يكن موجوداً
+if (empty($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
+$csrfToken = $_SESSION['csrf_token'];
+
+/** التحقق من CSRF token في الطلبات POST المصادق عليها */
+function verifyCsrf(): void
+{
+    $provided = $_POST['csrf_token'] ?? '';
+    if (!hash_equals($_SESSION['csrf_token'] ?? '', $provided)) {
+        http_response_code(403);
+        exit('طلب غير صالح (CSRF)');
+    }
+}
+
 // ============================================================
 // المصادقة
 // ============================================================
 $loginError = '';
 
 if (isset($_POST['logout'])) {
+    verifyCsrf();
     session_destroy();
     header('Location: index.php');
     exit;
@@ -26,6 +43,8 @@ if (isset($_POST['password'])) {
     $adminPass = GPSQ_ADMIN_PASSWORD;
     if ($adminPass !== '' && hash_equals($adminPass, $_POST['password'])) {
         $_SESSION['auth'] = true;
+        $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+        $csrfToken = $_SESSION['csrf_token'];
         header('Location: index.php');
         exit;
     }
@@ -44,6 +63,7 @@ if ($isAuth) {
 
     // إضافة كود جديد
     if (isset($_POST['add_code'])) {
+        verifyCsrf();
         $newCode = strtoupper(trim($_POST['new_code'] ?? ''));
         if (preg_match('/^[A-Z0-9]{4,32}$/', $newCode)) {
             try {
@@ -59,6 +79,7 @@ if ($isAuth) {
 
     // تغيير حالة كود
     if (isset($_POST['change_status'])) {
+        verifyCsrf();
         $codeTarget = trim($_POST['code_target'] ?? '');
         $newStatus  = trim($_POST['new_status'] ?? '');
         $allowed    = ['unused', 'linked', 'expired', 'closed'];
@@ -70,6 +91,7 @@ if ($isAuth) {
 
     // حذف كود
     if (isset($_POST['delete_code'])) {
+        verifyCsrf();
         $codeDel = trim($_POST['code_del'] ?? '');
         if ($codeDel) {
             $db->prepare("DELETE FROM codes WHERE code=?")->execute([$codeDel]);
@@ -464,6 +486,7 @@ $apiKeyFull    = GPSQ_API_KEY ?: '';
     <button class="btn btn-ghost btn-sm copy-btn" data-copy="<?= e($apiKeyFull) ?>">نسخ المفتاح</button>
     <?php endif; ?>
     <form method="post" style="margin:0">
+      <input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>">
       <button name="logout" class="btn btn-ghost btn-sm">خروج</button>
     </form>
   </div>
@@ -494,6 +517,7 @@ $apiKeyFull    = GPSQ_API_KEY ?: '';
 
   <!-- إضافة كود -->
   <form method="post" class="add-form">
+    <input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>">
     <div class="field">
       <label for="new_code">إضافة كود جديد (حروف وأرقام إنجليزية 4-32 خانة)</label>
       <input type="text" id="new_code" name="new_code" placeholder="مثال: ABCD1234" maxlength="32" style="text-transform:uppercase">
@@ -552,6 +576,7 @@ $apiKeyFull    = GPSQ_API_KEY ?: '';
           <td>
             <!-- تغيير الحالة -->
             <form method="post" style="display:inline-flex;gap:4px;align-items:center">
+              <input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>">
               <input type="hidden" name="code_target" value="<?= e($row['code']) ?>">
               <select name="new_status" style="padding:3px 6px;font-size:.8rem;width:auto">
                 <?php foreach (['unused','linked','expired','closed'] as $s): ?>
@@ -562,6 +587,7 @@ $apiKeyFull    = GPSQ_API_KEY ?: '';
             </form>
             <!-- حذف -->
             <form method="post" style="display:inline" onsubmit="return confirm('حذف الكود <?= e(addslashes($row['code'])) ?>؟')">
+              <input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>">
               <input type="hidden" name="code_del" value="<?= e($row['code']) ?>">
               <button name="delete_code" class="btn btn-danger btn-sm">🗑️</button>
             </form>
