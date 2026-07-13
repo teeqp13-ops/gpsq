@@ -10,7 +10,7 @@ include $(THEOS)/makefiles/common.mk
 
 TWEAK_NAME := gpsq
 
-gpsq_FILES := gpsq.mm
+gpsq_FILES := gpsq.mm UI/GPSAnimatedButton.mm
 gpsq_FRAMEWORKS := UIKit Foundation QuartzCore MapKit CoreLocation
 gpsq_CFLAGS := -fobjc-arc -Wno-deprecated-declarations -Wno-unused-function -DGPSQ_API_BASE=@\"$(GPSQ_API_BASE)\" -DGPSQ_API_KEY=@\"$(GPSQ_API_KEY)\"
 
