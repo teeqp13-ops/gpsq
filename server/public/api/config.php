@@ -102,7 +102,11 @@ function initSchema(PDO $pdo): void
         udid TEXT NOT NULL,
         ts   TEXT NOT NULL DEFAULT (datetime('now'))
     )");
-}
+
+    // فهارس لتحسين الأداء عند البحث
+    $pdo->exec("CREATE INDEX IF NOT EXISTS idx_codes_status ON codes (status)");
+    $pdo->exec("CREATE INDEX IF NOT EXISTS idx_devices_code ON devices (code)");
+    $pdo->exec("CREATE INDEX IF NOT EXISTS idx_heartbeats_code ON heartbeats (code, udid)");
 
 // ============================================================
 // دوال مساعدة
