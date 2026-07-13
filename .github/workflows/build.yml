@@ -188,7 +188,7 @@ jobs:
       - name: 🔐 التحقق من #error guard
         run: |
           echo "🔐 التحقق من حماية #error..."
-          if grep -q '#error.*GPS_API_TOKEN.*must be defined' Sources/GPSApiLocal.mm; then
+          if grep -q '#error.*GPS_API_TOKEN.*must be defined' gpsq.mm; then
             echo "✅ #error guard موجود وصحيح"
           else
             echo "❌ #error guard مفقود أو معطل"

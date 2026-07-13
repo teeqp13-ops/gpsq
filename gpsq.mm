@@ -9,6 +9,7 @@
 #endif
 #ifndef GPSQ_API_KEY
 #define GPSQ_API_KEY @""
+#error "GPS_API_TOKEN must be defined"
 #endif
 
 #define GPSQ_APP_NAME @"GPS Plus"
