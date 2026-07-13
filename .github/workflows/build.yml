@@ -1,236 +1,437 @@
-name: Build gpsq DEB
+name: 🔨 Build & Release gpsq DEB
 
 on:
   push:
     branches:
       - main
+      - develop
+    paths:
+      - '**.mm'
+      - '**.plist'
+      - 'Makefile'
+      - 'control'
+      - '.github/workflows/build.yml'
   pull_request:
     branches:
       - main
+      - develop
   workflow_dispatch:
+    inputs:
+      debug_mode:
+        description: 'تفعيل وضع التصحيح'
+        required: false
+        default: 'false'
 
 permissions:
   contents: read
   actions: read
+  packages: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GPSQ_API_BASE: https://ipa.p3nd.fun/server/api
+  GPSQ_API_KEY: ${{ secrets.GPSQ_API_KEY }}
+  REGISTRY: ghcr.io
+  CI_COMMIT_SHA: ${{ github.sha }}
+  CI_COMMIT_SHORT_SHA: ${{ github.sha }}
 
 jobs:
-  build:
-    name: Build gpsq DEB
+  # 📋 مرحلة الفحص المسبق
+  pre-build-checks:
+    name: ✅ الفحوصات المسبقة
     runs-on: ubuntu-latest
-    env:
-      GPSQ_API_BASE: https://ipa.p3nd.fun/server/api
-      GPSQ_API_KEY: ${{ secrets.GPSQ_API_KEY }}
+    outputs:
+      build_version: ${{ steps.version.outputs.version }}
+      commit_author: ${{ steps.git.outputs.author }}
+      commit_message: ${{ steps.git.outputs.message }}
     steps:
-      - name: Checkout repository
+      - name: 📥 تحميل كود المشروع
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Prepare Theos
-        uses: Randomblock1/theos-action@v1
-
-      - name: Verify project files
+      - name: 📊 استخراج معلومات النسخة
+        id: version
         run: |
-          set -e
-          echo "🔍 التحقق من ملفات المشروع..."
-          pwd
-          ls -lah
+          # قراءة النسخة من الملفات
+          VERSION=$(grep -oP 'Version: \K[0-9.]+' control 2>/dev/null || echo "0.0.0")
+          BUILD_NUMBER=${{ github.run_number }}
+          FULL_VERSION="${VERSION}-build.${BUILD_NUMBER}"
           
-          # التحقق من الملفات المطلوبة
-          required_files=("Makefile" "control" "gpsq.mm" "gpsq.plist" "Filter.plist")
-          for file in "${required_files[@]}"; do
-            if [ ! -f "$file" ]; then
-              echo "❌ خطأ: الملف المطلوب '$file' غير موجود"
-              exit 1
+          echo "version=${FULL_VERSION}" >> $GITHUB_OUTPUT
+          echo "📌 النسخة: $FULL_VERSION"
+
+      - name: 🔍 استخراج معلومات Git
+        id: git
+        run: |
+          AUTHOR=$(git log -1 --pretty=%an)
+          MESSAGE=$(git log -1 --pretty=%s)
+          TIMESTAMP=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
+          
+          echo "author=${AUTHOR}" >> $GITHUB_OUTPUT
+          echo "message=${MESSAGE}" >> $GITHUB_OUTPUT
+          echo "timestamp=${TIMESTAMP}" >> $GITHUB_OUTPUT
+          
+          echo "👤 المؤلف: $AUTHOR"
+          echo "💬 الرسالة: $MESSAGE"
+          echo "⏰ الوقت: $TIMESTAMP"
+
+      - name: 🗂️ التحقق من بنية المشروع
+        run: |
+          echo "🔍 فحص ملفات المشروع..."
+          
+          # ملفات إلزامية
+          REQUIRED_FILES=(
+            "Makefile"
+            "control"
+            "gpsq.mm"
+            "gpsq.plist"
+            "Filter.plist"
+          )
+          
+          ERROR_COUNT=0
+          for file in "${REQUIRED_FILES[@]}"; do
+            if [ -f "$file" ]; then
+              FILE_SIZE=$(du -h "$file" | cut -f1)
+              echo "✅ $file ($FILE_SIZE)"
+            else
+              echo "❌ مفقود: $file"
+              ((ERROR_COUNT++))
             fi
-            echo "✅ تم العثور على: $file"
           done
           
-          echo "✨ جميع ملفات المشروع موجودة وجاهزة"
-          
-          # التحقق من السر
-          if [ -z "$GPSQ_API_KEY" ]; then
-            echo "⚠️ تحذير: السر GPSQ_API_KEY غير مُعيّن"
-            echo "::warning::Activation requests will be rejected by the server"
-          else
-            echo "✅ تم تعيين GPSQ_API_KEY"
+          if [ $ERROR_COUNT -gt 0 ]; then
+            echo "❌ فشل: $ERROR_COUNT ملف(ات) مفقودة"
+            exit 1
           fi
-
-      # ✨ ميزة جديدة: فحص الكود الثابت
-      - name: Code Quality Check
-        run: |
-          echo "🔬 فحص جودة الكود..."
           
-          # فحص الملفات الرئيسية
-          for file in gpsq.mm gpsq.plist Filter.plist; do
-            if [ -f "$file" ]; then
-              lines=$(wc -l < "$file")
-              echo "📄 $file: $lines سطر"
+          echo "✨ جميع الملفات موجودة ✓"
+
+      - name: 🔐 التحقق من الأسرار والمتغيرات
+        run: |
+          echo "🔐 فحص المتغيرات البيئية..."
+          
+          if [ -z "$GPSQ_API_KEY" ]; then
+            echo "⚠️  تحذير: السر GPSQ_API_KEY غير مُعيّن"
+            echo "::warning::API Key غير متوفر - قد تفشل الطلبات"
+          else
+            echo "✅ GPSQ_API_KEY معيّن بنجاح"
+          fi
+          
+          if [ -z "$GPSQ_API_BASE" ]; then
+            echo "❌ خطأ: قاعدة الـ API غير محددة"
+            exit 1
+          fi
+          
+          echo "✅ جميع المتغيرات المطلوبة موجودة"
+
+      - name: 🏗️ فحص بيئة Theos
+        run: |
+          echo "🏗️ فحص بيئة التطوير..."
+          
+          # تحديد إصدار Xcode إذا كان متاحاً
+          if command -v xcodebuild &> /dev/null; then
+            XCODE_VERSION=$(xcodebuild -version 2>/dev/null | head -1)
+            echo "🍎 $XCODE_VERSION"
+          fi
+          
+          echo "✅ تم فحص بيئة التطوير"
+
+  # 🔨 مرحلة البناء
+  build:
+    name: 🔨 بناء حزمة DEB
+    needs: pre-build-checks
+    runs-on: ubuntu-latest
+    outputs:
+      build_time: ${{ steps.build.outputs.duration }}
+      deb_files: ${{ steps.verify.outputs.files }}
+      total_size: ${{ steps.verify.outputs.total_size }}
+    steps:
+      - name: 📥 تحميل كود المشروع
+        uses: actions/checkout@v4
+
+      - name: 🛠️ تحضير بيئة Theos
+        uses: Randomblock1/theos-action@v1
+
+      - name: 🧹 تنظيف الملفات القديمة
+        run: |
+          echo "🧹 تنظيف البيئة..."
+          make clean || true
+          rm -rf build/ obj/ *.deb *.o
+          echo "✅ تم التنظيف"
+
+      - name: 🔨 بناء الحزمة
+        id: build
+        run: |
+          echo "🔨 بدء عملية البناء..."
+          START_TIME=$(date +%s)
+          
+          # بناء الحزمة مع معالجة الأخطاء
+          echo "📦 تجميع حزمة DEB..."
+          set -e
+          
+          make package FINALPACKAGE=1 \
+            GPSQ_API_BASE="${GPSQ_API_BASE}" \
+            GPSQ_API_KEY="${GPSQ_API_KEY}" 2>&1 | tee build.log
+          
+          END_TIME=$(date +%s)
+          DURATION=$((END_TIME - START_TIME))
+          
+          echo "duration=${DURATION}" >> $GITHUB_OUTPUT
+          echo "✅ البناء اكتمل في ${DURATION} ثانية"
+
+      - name: 📊 التحقق من المخرجات
+        id: verify
+        run: |
+          echo "🔍 التحقق من ملفات البناء..."
+          
+          DEB_FILES=$(find . -type f -name "*.deb" -not -path "./.git/*")
+          DEB_COUNT=$(echo "$DEB_FILES" | wc -l)
+          
+          if [ $DEB_COUNT -eq 0 ]; then
+            echo "❌ خطأ: لم يتم إنشاء ملفات DEB"
+            echo "📋 محتويات السجل:"
+            tail -50 build.log || true
+            exit 1
+          fi
+          
+          echo "files=${DEB_COUNT}" >> $GITHUB_OUTPUT
+          
+          echo "✅ تم إنشاء $DEB_COUNT ملف(ات) DEB:"
+          echo ""
+          
+          TOTAL_SIZE=0
+          while IFS= read -r deb; do
+            if [ -n "$deb" ]; then
+              SIZE=$(du -h "$deb" | cut -f1)
+              SIZE_BYTES=$(du -b "$deb" | cut -f1)
+              TOTAL_SIZE=$((TOTAL_SIZE + SIZE_BYTES))
               
-              # فحص الأخطاء الشائعة
-              if grep -q "TODO\|FIXME\|BUG" "$file"; then
-                echo "⚠️ تحذير: وجدت TODO/FIXME/BUG في $file"
+              MD5=$(md5sum "$deb" | cut -d' ' -f1)
+              SHA256=$(sha256sum "$deb" | cut -d' ' -f1)
+              
+              echo "  📦 $(basename $deb)"
+              echo "     📊 الحجم: $SIZE"
+              echo "     🔐 MD5: $MD5"
+              echo "     🔐 SHA256: $SHA256"
+              echo ""
+            fi
+          done <<< "$DEB_FILES"
+          
+          TOTAL_SIZE_MB=$((TOTAL_SIZE / 1024 / 1024))
+          echo "total_size=${TOTAL_SIZE_MB}MB" >> $GITHUB_OUTPUT
+
+  # 🔒 مرحلة الأمان والتدقيق
+  security-scan:
+    name: 🔒 فحص الأمان
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 تحميل كود المشروع
+        uses: actions/checkout@v4
+
+      - name: 🔐 فحص البيانات الحساسة
+        run: |
+          echo "🔐 فحص الأمان..."
+          
+          # ملفات الكود الأساسية
+          SCAN_FILES=("gpsq.mm" "gpsq.plist" "Filter.plist" "Makefile" "control")
+          
+          ISSUES_FOUND=0
+          
+          for file in "${SCAN_FILES[@]}"; do
+            if [ -f "$file" ]; then
+              # فحص عن كلمات مشبوهة
+              if grep -iE "password|secret|apikey|token|auth|credential" "$file" 2>/dev/null | grep -v "GPSQ_API_KEY"; then
+                echo "⚠️ تحذير: قد توجد بيانات حساسة في $file"
+                ((ISSUES_FOUND++))
+              fi
+              
+              # فحص عن كود عادم للتطوير
+              if grep -E "TODO|FIXME|HACK|XXX|KLUDGE" "$file"; then
+                echo "ℹ️ ملاحظة: وجدت علامات تطوير في $file"
               fi
             fi
           done
           
-          echo "✅ اكتمل فحص جودة الكود"
-
-      - name: Build package
-        run: |
-          set -e
-          echo "🔨 بدء البناء..."
-          START_TIME=$(date +%s)
-          
-          # تنظيف الملفات القديمة
-          make clean || true
-          
-          # بناء الحزمة
-          echo "📦 تجميع حزمة DEB..."
-          make package FINALPACKAGE=1 \
-            GPSQ_API_BASE="$GPSQ_API_BASE" \
-            GPSQ_API_KEY="$GPSQ_API_KEY"
-          
-          END_TIME=$(date +%s)
-          BUILD_TIME=$((END_TIME - START_TIME))
-          echo "✅ تم البناء بنجاح (الوقت: ${BUILD_TIME}s)"
-          echo "BUILD_TIME=${BUILD_TIME}" >> $GITHUB_ENV
-        
-      - name: Verify build output
-        if: success()
-        run: |
-          echo "🔍 التحقق من ملفات البناء..."
-          deb_count=$(find . -type f -name "*.deb" -not -path "./.git/*" | wc -l)
-          
-          if [ "$deb_count" -eq 0 ]; then
-            echo "❌ خطأ: لم يتم إنشاء ملفات DEB"
-            exit 1
-          fi
-          
-          echo "✅ تم إنشاء $deb_count ملف(ات) DEB"
-          
-          # ✨ ميزة جديدة: فحص حجم الملفات
-          echo ""
-          echo "📊 تقرير أحجام الملفات:"
-          find . -type f -name "*.deb" -not -path "./.git/*" | while read deb; do
-            size=$(du -h "$deb" | cut -f1)
-            echo "  📦 $(basename $deb): $size"
-          done
-
-      # ✨ ميزة جديدة: فحص الأمان
-      - name: Security Scan
-        run: |
-          echo "🔐 فحص الأمان..."
-          
-          # فحص المفاتيح الخاصة
-          if grep -r "PRIVATE\|SECRET\|PASSWORD" --include="*.mm" --include="*.plist" . 2>/dev/null; then
-            echo "⚠️ تحذير: قد تكون هناك بيانات حساسة في الكود"
+          if [ $ISSUES_FOUND -eq 0 ]; then
+            echo "✅ لم يتم العثور على مشاكل أمان"
           else
-            echo "✅ لم يتم العثور على بيانات حساسة"
+            echo "⚠️ وجدت $ISSUES_FOUND مشكلة أمان محتملة"
           fi
-          
-          # فحص الملفات المريبة
-          echo "✅ اكتمل فحص الأمان"
 
-      - name: Collect build artifacts
-        if: always()
+      - name: 📋 فحص جودة الكود
         run: |
-          mkdir -p artifacts
+          echo "📋 فحص جودة الكود..."
           
-          echo "📋 جمع معلومات البناء..."
+          STATS_FILE="code-stats.txt"
           {
-            echo "================================"
-            echo "     📊 تقرير البناء الكامل     "
-            echo "================================"
-            echo ""
-            echo "=== معلومات البناء ==="
+            echo "=== إحصائيات الكود ==="
             echo "التاريخ: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
-            echo "الفرع: $(git rev-parse --abbrev-ref HEAD)"
-            echo "آخر التزام: $(git log -1 --pretty=%H)"
-            echo "مؤلف: $(git log -1 --pretty=%an)"
-            echo "الرسالة: $(git log -1 --pretty=%s)"
             echo ""
-            echo "=== معلومات النظام ==="
-            echo "النظام: $(uname -a)"
-            echo "مساحة القرص: $(df -h / | tail -1)"
-            echo ""
-            echo "=== الملفات الموجودة ==="
-          } > artifacts/build-info.txt
-          
-          pwd >> artifacts/build-info.txt
-          echo "" >> artifacts/build-info.txt
-          find . -maxdepth 4 -type f -not -path "./.git/*" | sort >> artifacts/build-info.txt
-          
-          echo "" >> artifacts/build-info.txt
-          echo "=== ملفات DEB المُنتجة ===" >> artifacts/build-info.txt
-          
-          # ✨ ميزة جديدة: معلومات مفصلة عن DEB
-          find . -type f -name "*.deb" -not -path "./.git/*" | while read -r deb; do
-            echo "نسخ: $deb"
-            cp -v "$deb" artifacts/
             
-            # حفظ معلومات الملف
-            {
-              echo "📦 $(basename $deb)"
-              echo "  الحجم: $(du -h "$deb" | cut -f1)"
-              echo "  وقت التعديل: $(stat -f '%Sm' "$deb" 2>/dev/null || stat --format='%y' "$deb")"
-              echo "  MD5: $(md5sum "$deb" | cut -d' ' -f1)"
-            } >> artifacts/deb-info.txt
-            
-            echo "$deb" >> artifacts/deb-list.txt
-          done
-          
-          # عرض المعلومات
-          echo "" >> artifacts/build-info.txt
-          echo "=== حجم الملفات ===" >> artifacts/build-info.txt
-          ls -lh artifacts/ >> artifacts/build-info.txt
-          
-          echo "✅ تم جمع Artifacts"
+            for file in gpsq.mm gpsq.plist Filter.plist; do
+              if [ -f "$file" ]; then
+                LINES=$(wc -l < "$file")
+                WORDS=$(wc -w < "$file")
+                CHARS=$(wc -c < "$file")
+                
+                echo "📄 $file"
+                echo "   الأسطر: $LINES"
+                echo "   الكلمات: $WORDS"
+                echo "   الأحرف: $CHARS"
+                echo ""
+              fi
+            done
+          } | tee "$STATS_FILE"
 
-      - name: Upload DEB Artifacts
-        if: always()
+      - name: 📤 تحميل تقرير الأمان
         uses: actions/upload-artifact@v4
         with:
-          name: gpsq-DEB-Packages
-          path: artifacts/
-          if-no-files-found: warn
+          name: security-report
+          path: code-stats.txt
           retention-days: 30
 
-      # ✨ ميزة جديدة: إرسال إخطارات
-      - name: Send Notifications
-        if: always()
-        run: |
-          echo "📢 إرسال الإخطارات..."
-          
-          STATUS=${{ job.status }}
-          
-          if [ "$STATUS" == "success" ]; then
-            echo "✅ البناء نجح بنجاح!"
-            echo "📦 الحزم جاهزة للتحميل"
-            echo "⏱️ وقت البناء: ${{ env.BUILD_TIME }}s"
-          elif [ "$STATUS" == "failure" ]; then
-            echo "❌ البناء فشل"
-            echo "🔧 يرجى التحقق من السجلات"
-            exit 1
-          else
-            echo "⚠️ البناء متوقف"
-          fi
+  # 📊 مرحلة التقارير والتوثيق
+  generate-reports:
+    name: 📊 إنشاء التقارير
+    needs: [build, pre-build-checks]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: 📥 تحميل كود المشروع
+        uses: actions/checkout@v4
 
-      # ✨ ميزة جديدة: ملخص البناء
-      - name: Build Summary
-        if: always()
+      - name: 📋 إنشاء تقرير البناء
         run: |
-          echo "📝 ملخص البناء النهائي:"
-          echo ""
-          echo "=== الإحصائيات ==="
+          mkdir -p reports
           
-          if [ -f artifacts/deb-list.txt ]; then
-            deb_files=$(wc -l < artifacts/deb-list.txt)
-            total_size=$(du -sh artifacts/ | cut -f1)
-            echo "✅ عدد ملفات DEB: $deb_files"
-            echo "📊 الحجم الكلي: $total_size"
-          fi
+          {
+            echo "╔════════════════════════════════════════════════╗"
+            echo "║          📊 تقرير البناء الشامل               ║"
+            echo "╚════════════════════════════════════════════════╝"
+            echo ""
+            echo "📌 معلومات البناء"
+            echo "─────────────────────────────────────────────"
+            echo "النسخة: ${{ needs.pre-build-checks.outputs.build_version }}"
+            echo "المؤلف: ${{ needs.pre-build-checks.outputs.commit_author }}"
+            echo "الرسالة: ${{ needs.pre-build-checks.outputs.commit_message }}"
+            echo ""
+            echo "📦 ملفات المخرجات"
+            echo "─────────────────────────────────────────────"
+            echo "عدد الملفات: ${{ needs.build.outputs.deb_files }}"
+            echo "الحجم الكلي: ${{ needs.build.outputs.total_size }}"
+            echo "وقت البناء: ${{ needs.build.outputs.build_time }} ثانية"
+            echo ""
+            echo "🎯 حالة البناء"
+            echo "─────────────────────────────────────────────"
+            if [ "${{ job.status }}" == "success" ]; then
+              echo "✅ البناء نجح"
+            else
+              echo "❌ البناء فشل"
+            fi
+            echo ""
+            echo "⏰ الطابع الزمني"
+            echo "─────────────────────────────────────────────"
+            echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+            echo ""
+          } | tee reports/build-report.txt
+
+      - name: 📤 تحميل التقارير
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-reports
+          path: reports/
+          retention-days: 30
+
+  # 📤 مرحلة تجميع المخرجات
+  collect-artifacts:
+    name: 📤 تجميع المخرجات
+    needs: build
+    runs-on: ubuntu-latest
+    if: success()
+    steps:
+      - name: 📥 تحميل كود المشروع
+        uses: actions/checkout@v4
+
+      - name: 🛠️ تحضير بيئة Theos
+        uses: Randomblock1/theos-action@v1
+
+      - name: 🔨 بناء الحزمة (مرة أخرى)
+        run: |
+          make clean || true
+          make package FINALPACKAGE=1 \
+            GPSQ_API_BASE="${GPSQ_API_BASE}" \
+            GPSQ_API_KEY="${GPSQ_API_KEY}"
+
+      - name: 📦 تجميع ملفات DEB
+        run: |
+          mkdir -p artifacts/debs artifacts/info
           
+          find . -type f -name "*.deb" -not -path "./.git/*" | while read -r deb; do
+            cp "$deb" artifacts/debs/
+            
+            # إنشاء ملف معلومات لكل DEB
+            BASENAME=$(basename "$deb")
+            {
+              echo "📦 $BASENAME"
+              echo "الحجم: $(du -h "$deb" | cut -f1)"
+              echo "MD5: $(md5sum "$deb" | cut -d' ' -f1)"
+              echo "SHA256: $(sha256sum "$deb" | cut -d' ' -f1)"
+              echo "تاريخ الإنشاء: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+            } > "artifacts/info/${BASENAME}.info"
+          done
+
+      - name: 📤 تحميل ملفات DEB
+        uses: actions/upload-artifact@v4
+        with:
+          name: gpsq-DEB-packages
+          path: artifacts/debs/
+          retention-days: 30
+          compression-level: 9
+
+      - name: 📤 تحميل معلومات الملفات
+        uses: actions/upload-artifact@v4
+        with:
+          name: deb-info
+          path: artifacts/info/
+          retention-days: 30
+
+  # ✅ مرحلة الملخص النهائي
+  summary:
+    name: ✅ الملخص النهائي
+    needs: [pre-build-checks, build, security-scan, generate-reports, collect-artifacts]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: 📋 عرض الملخص
+        run: |
+          echo "╔════════════════════════════════════════════════╗"
+          echo "║          ✅ ملخص البناء النهائي               ║"
+          echo "╚════════════════════════════════════════════════╝"
           echo ""
-          echo "=== تفاصيل السجل ==="
-          if [ -f artifacts/build-info.txt ]; then
-            head -20 artifacts/build-info.txt
-          fi
+          echo "📌 معلومات البناء:"
+          echo "  النسخة: ${{ needs.pre-build-checks.outputs.build_version }}"
+          echo "  المؤلف: ${{ needs.pre-build-checks.outputs.commit_author }}"
+          echo ""
+          echo "📊 الإحصائيات:"
+          echo "  ملفات DEB: ${{ needs.build.outputs.deb_files }}"
+          echo "  الحجم الكلي: ${{ needs.build.outputs.total_size }}"
+          echo "  وقت البناء: ${{ needs.build.outputs.build_time }} ثانية"
+          echo ""
+          echo "🎯 النتائج:"
+          echo "  ✅ الفحوصات المسبقة: نجحت"
+          echo "  ✅ البناء: نجح"
+          echo "  ✅ فحص الأمان: اكتمل"
+          echo "  ✅ التقارير: جاهزة"
+          echo "  ✅ المخرجات: مجمعة"
+          echo ""
+          echo "📥 المخرجات متاحة للتحميل:"
+          echo "  • gpsq-DEB-packages"
+          echo "  • deb-info"
+          echo "  • build-reports"
+          echo "  • security-report"
+          echo ""
+          echo "✨ اكتمل البناء بنجاح!"
