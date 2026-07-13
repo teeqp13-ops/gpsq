@@ -82,8 +82,6 @@ $db->prepare("INSERT INTO devices (code, udid, device_name, ios_version, app_ver
    ->execute([$code, $udid, $device_name, $ios_version, $app_version]);
 
 jsonResponse([
-    'success'    => true,
-    'status'     => 'active',
-    'token'      => bin2hex(random_bytes(16)),
-    'expires_at' => date('Y-m-d\TH:i:s\Z', strtotime('+30 days')),
+    'success' => true,
+    'status'  => 'active',
 ]);
