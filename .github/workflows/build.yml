@@ -22,7 +22,7 @@ permissions:
   contents: read
 
 env:
-  GPSQ_API_BASE: https://ipa.p3nd.fun/server/api
+  GPSQ_API_BASE: https://key.p3nd.fun/api
   GPSQ_API_KEY: ${{ secrets.GPSQ_API_KEY }}
 
 jobs:
