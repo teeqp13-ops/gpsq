@@ -1,0 +1,84 @@
+name: Build gpsq DEB
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - '**.mm'
+      - '**.xm'
+      - '**.plist'
+      - 'Makefile'
+      - 'control'
+      - '.github/workflows/build.yml'
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+concurrency:
+  group: gpsq-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  GPSQ_API_BASE: https://ipa.p3nd.fun/server/api
+  GPSQ_API_KEY: ${{ secrets.GPSQ_API_KEY }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify project files
+        shell: bash
+        run: |
+          set -euo pipefail
+          required=(Makefile control gpsq.mm gpsq.plist Filter.plist)
+          for file in "${required[@]}"; do
+            test -f "$file" || { echo "Missing required file: $file"; exit 1; }
+            echo "Found: $file"
+          done
+
+          if [ -f Sources/GPSApiLocal.mm ]; then
+            echo "GPSApiLocal.mm found; checking optional compile-time guard"
+            grep -q '#error.*GPS_API_TOKEN.*must be defined' Sources/GPSApiLocal.mm \
+              || echo "Warning: GPS_API_TOKEN guard was not found"
+          else
+            echo "Sources/GPSApiLocal.mm is not used by this project; skipping legacy guard check"
+          fi
+
+      - name: Setup Theos
+        uses: Randomblock1/theos-action@v1
+
+      - name: Build package
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          {
+            make clean || true
+            make package FINALPACKAGE=1 \
+              GPSQ_API_BASE="$GPSQ_API_BASE" \
+              GPSQ_API_KEY="$GPSQ_API_KEY"
+          } 2>&1 | tee artifacts/build.log
+
+          find . -type f -name '*.deb' -not -path './.git/*' -exec cp -v {} artifacts/ \;
+          test -n "$(find artifacts -maxdepth 1 -type f -name '*.deb' -print -quit)"
+          sha256sum artifacts/*.deb > artifacts/SHA256SUMS.txt
+          ls -lah artifacts
+
+      - name: Upload package
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gpsq-DEB-${{ github.run_number }}
+          path: |
+            artifacts/*.deb
+            artifacts/build.log
+            artifacts/SHA256SUMS.txt
+          if-no-files-found: warn
+          retention-days: 30
