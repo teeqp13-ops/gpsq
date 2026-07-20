@@ -1,5 +1,6 @@
 name: Build FAKE GPS DEB
 
+# Build trigger: 2026-07-21
 on:
   workflow_dispatch:
   push:
