@@ -1,6 +1,6 @@
 name: Build FAKE GPS DEB
 
-# Build trigger: 2026-07-21 jailbreak-check
+# Build trigger: 2026-07-21 floating-menu-rebuild
 on:
   workflow_dispatch:
   push:
