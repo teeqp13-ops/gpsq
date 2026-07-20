@@ -1,9 +1,9 @@
-Package: com.khalid.gpsq
-Name: gpsq
-Version: 1.1
-Architecture: iphoneos-arm64
-Description: gpsq v1.1 Arabic GPS Plus control panel with 8-character activation and automatic UDID/UUID detection for iOS 16+.
+Package: com.khalid.fakegps
+Name: FAKE GPS
+Version: 2.0.0
+Architecture: iphoneos-arm
+Description: FAKE GPS with full-screen map, activation, floating control, photo picker, saved position, and location tools.
 Maintainer: Khalid
 Author: Khalid
 Section: Tweaks
-Depends: mobilesubstrate | ellekit, firmware (>= 16.0)
+Depends: mobilesubstrate | ellekit, firmware (>= 14.0)
