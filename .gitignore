@@ -7,3 +7,11 @@ obj/
 build/
 DerivedData/
 artifacts/
+
+# قاعدة بيانات SQLite (لا تُضاف إلى git)
+*.db
+*.db-shm
+*.db-wal
+
+# ملف الإعدادات المحلي للسيرفر (يحتوي على مفاتيح سرية)
+server/public/api/config.local.php
