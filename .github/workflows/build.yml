@@ -1,8 +1,9 @@
-name: Build gpsq DEB
+name: Build FAKE GPS DEB
 
 on:
+  workflow_dispatch:
   push:
-    branches: [main, develop]
+    branches: [main]
     paths:
       - '**.mm'
       - '**.xm'
@@ -11,71 +12,83 @@ on:
       - 'control'
       - '.github/workflows/build.yml'
   pull_request:
-    branches: [main, develop]
-  workflow_dispatch:
+    branches: [main]
 
 concurrency:
-  group: gpsq-${{ github.ref }}
+  group: fake-gps-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
   contents: read
 
 env:
-  GPSQ_API_BASE: https://key.p3nd.fun/api
-  GPSQ_API_KEY: ${{ secrets.GPSQ_API_KEY }}
+  THEOS: ${{ github.workspace }}/theos
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
+    timeout-minutes: 35
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Verify project files
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bash curl git make perl build-essential fakeroot xz-utils unzip libplist-utils
+
+      - name: Verify project integration
         shell: bash
         run: |
           set -euo pipefail
-          required=(Makefile control gpsq.mm gpsq.plist Filter.plist)
+          required=(Makefile control FakeGPS.mm gpsq.plist)
           for file in "${required[@]}"; do
             test -f "$file" || { echo "Missing required file: $file"; exit 1; }
             echo "Found: $file"
           done
+          grep -q 'gpsq_FILES.*FakeGPS.mm' Makefile
+          grep -q 'TWEAK_NAME.*gpsq' Makefile
+          grep -q 'com.apple.springboard' gpsq.plist
 
-          if [ -f Sources/GPSApiLocal.mm ]; then
-            echo "GPSApiLocal.mm found; checking optional compile-time guard"
-            grep -q '#error.*GPS_API_TOKEN.*must be defined' Sources/GPSApiLocal.mm \
-              || echo "Warning: GPS_API_TOKEN guard was not found"
-          else
-            echo "Sources/GPSApiLocal.mm is not used by this project; skipping legacy guard check"
-          fi
-
-      - name: Setup Theos
-        uses: Randomblock1/theos-action@v1
-
-      - name: Build package
+      - name: Install Theos toolchain and SDK
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p artifacts
-          {
-            make clean || true
-            make package FINALPACKAGE=1 \
-              GPSQ_API_BASE="$GPSQ_API_BASE" \
-              GPSQ_API_KEY="$GPSQ_API_KEY"
-          } 2>&1 | tee artifacts/build.log
+          rm -rf "$THEOS"
+          bash -c "$(curl -fsSL https://raw.githubusercontent.com/theos/theos/master/bin/install-theos)"
+          test -x "$THEOS/toolchain/linux/iphone/bin/clang"
+          test -n "$(find "$THEOS/sdks" -maxdepth 1 -type d -name '*.sdk' -print -quit)"
+          "$THEOS/toolchain/linux/iphone/bin/clang" --version
 
-          find . -type f -name '*.deb' -not -path './.git/*' -exec cp -v {} artifacts/ \;
+      - name: Build rootless package
+        shell: bash
+        run: |
+          set +e
+          mkdir -p artifacts
+          make clean
+          make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless messages=yes -j1 2>&1 | tee artifacts/build.log
+          status=${PIPESTATUS[0]}
+          echo ""
+          echo "========== BUILD ERRORS =========="
+          grep -nE 'error:|fatal error:|Undefined symbols|duplicate symbol|ld:|make\[[0-9]+\]: \*\*\*' artifacts/build.log || true
+          echo "=================================="
+          exit "$status"
+
+      - name: Collect package
+        if: success()
+        shell: bash
+        run: |
+          find packages -type f -name '*.deb' -exec cp -v {} artifacts/ \;
           test -n "$(find artifacts -maxdepth 1 -type f -name '*.deb' -print -quit)"
           sha256sum artifacts/*.deb > artifacts/SHA256SUMS.txt
           ls -lah artifacts
 
-      - name: Upload package
+      - name: Upload build files
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: gpsq-DEB-${{ github.run_number }}
+          name: FAKE-GPS-${{ github.run_number }}
           path: |
             artifacts/*.deb
             artifacts/build.log
