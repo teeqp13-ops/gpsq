@@ -1,6 +1,5 @@
 name: Build FAKE GPS DEB
 
-# Build trigger: 2026-07-21 manual-build-2
 on:
   workflow_dispatch:
   push:
@@ -9,8 +8,12 @@ on:
       - '**.mm'
       - '**.xm'
       - '**.plist'
+      - '**.strings'
+      - '**.json'
       - 'Makefile'
       - 'control'
+      - 'scripts/**'
+      - 'Resources/**'
       - '.github/workflows/build.yml'
   pull_request:
     branches: [main]
@@ -37,24 +40,11 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y bash curl git make perl build-essential fakeroot xz-utils unzip libplist-utils
+          sudo apt-get install -y bash curl git make perl python3 build-essential fakeroot xz-utils unzip libplist-utils
 
-      - name: Verify project integration
+      - name: Validate repository
         shell: bash
-        run: |
-          set -euo pipefail
-          required=(Makefile control FakeGPS.mm SharedBridge.xm FeaturePack.xm LocationSpoof.xm gpsq.plist FakeGPSLocation.plist)
-          for file in "${required[@]}"; do
-            test -f "$file" || { echo "Missing required file: $file"; exit 1; }
-            echo "Found: $file"
-          done
-          grep -q 'TWEAK_NAME.*gpsq.*FakeGPSLocation' Makefile
-          grep -q 'gpsq_FILES.*FakeGPS.mm.*SharedBridge.xm.*FeaturePack.xm' Makefile
-          grep -q 'FakeGPSLocation_FILES.*LocationSpoof.xm' Makefile
-          grep -q 'com.apple.springboard' gpsq.plist
-          grep -q 'CLLocationManager' FakeGPSLocation.plist
-          grep -q 'FGLicenseIsActive' FeaturePack.xm
-          grep -q 'api/activate.php' FeaturePack.xm
+        run: bash scripts/validate.sh
 
       - name: Install Theos toolchain and SDK
         shell: bash
