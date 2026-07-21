@@ -62,6 +62,7 @@ static UIButton *FGCircleButton(NSString *symbol, UIColor *color) {
 @property(nonatomic,strong) MKMapView *mapView;
 @property(nonatomic,strong) UILabel *coordinateLabel;
 - (void)openMenu;
+- (void)fg_showActivationGate;
 @end
 
 static MKPointAnnotation *FGSelectedPin;
@@ -138,16 +139,18 @@ static void FGAppendRecord(NSString *key, NSDictionary *record, NSUInteger maxCo
     }];
     [alert addAction:[UIAlertAction actionWithTitle:@"إلغاء" style:UIAlertActionStyleCancel handler:nil]];
     [alert addAction:[UIAlertAction actionWithTitle:@"تفعيل" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+        (void)action;
         NSString *code = [alert.textFields.firstObject.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
         if (code.length == 0) { FGShowAlert(@"تنبيه", @"أدخل كود الترخيص."); return; }
 
-        NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:@"https://key.p3nd.fun/api/activate.php"]];
+        NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:@"https://key.p3nd.fun/BYANO_Merged/api/activate.php"]];
         request.HTTPMethod = @"POST";
         [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
         NSDictionary *body = @{ @"code":code, @"license_code":code, @"device_uuid":FGDeviceUUID(), @"project":@"FAKE GPS", @"platform":@"ios" };
         request.HTTPBody = [NSJSONSerialization dataWithJSONObject:body options:0 error:nil];
 
         NSURLSessionDataTask *task = [NSURLSession.sharedSession dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+            (void)response;
             BOOL success = NO;
             NSString *message = @"تعذر الاتصال بخادم التفعيل.";
             if (!error && data.length) {
