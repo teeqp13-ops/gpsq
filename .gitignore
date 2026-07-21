@@ -13,7 +13,10 @@ DerivedData/
 *.tmp
 *.swp
 
-# قواعد بيانات وإعدادات محلية حساسة
+# أسرار وإعدادات محلية
+.env
+.env.*
+!.env.example
 *.db
 *.db-shm
 *.db-wal
