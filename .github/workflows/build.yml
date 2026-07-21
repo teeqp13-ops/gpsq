@@ -1,4 +1,4 @@
-name: Build FAKE GPS DEB
+name: Build GPSQ Packages
 
 on:
   workflow_dispatch:
@@ -10,16 +10,18 @@ on:
       - '**.plist'
       - '**.strings'
       - '**.json'
+      - '**.php'
       - 'Makefile'
       - 'control'
       - 'scripts/**'
+      - 'server/**'
       - 'Resources/**'
       - '.github/workflows/build.yml'
   pull_request:
     branches: [main]
 
 concurrency:
-  group: fake-gps-${{ github.ref }}
+  group: gpsq-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -42,7 +44,18 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y bash curl git make perl python3 build-essential fakeroot xz-utils unzip libplist-utils
+          sudo apt-get install -y bash curl git make perl python3 php-cli php-sqlite3 build-essential fakeroot xz-utils unzip libplist-utils
+
+      - name: Validate PHP panel
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          find server -type f -name '*.php' -print0 | xargs -0 -n1 php -l
+          php -r "new PDO('sqlite::memory:'); echo 'SQLite OK'.PHP_EOL;"
+
+      - name: Build PHP panel DEB
+        shell: bash
+        run: bash server/build-deb.sh
 
       - name: Install Theos toolchain and SDK
         shell: bash
@@ -52,9 +65,8 @@ jobs:
           bash -c "$(curl -fsSL https://raw.githubusercontent.com/theos/theos/master/bin/install-theos)"
           test -x "$THEOS/toolchain/linux/iphone/bin/clang"
           test -n "$(find "$THEOS/sdks" -maxdepth 1 -type d -name '*.sdk' -print -quit)"
-          "$THEOS/toolchain/linux/iphone/bin/clang" --version
 
-      - name: Validate clean and build with retries
+      - name: Build tweak DEB with retries
         shell: bash
         run: bash scripts/build.sh
 
@@ -62,11 +74,11 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: FAKE-GPS-${{ github.run_number }}
+          name: GPSQ-${{ github.run_number }}
           path: |
             artifacts/*.deb
             artifacts/*.log
-            artifacts/SHA256SUMS.txt
+            artifacts/*SHA256SUMS.txt
             artifacts/BUILD_RESULT.txt
           if-no-files-found: warn
           retention-days: 30
