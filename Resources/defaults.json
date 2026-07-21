@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "name": "FAKE GPS",
+  "preferencesDomain": "fun.p3nd.fakegps",
+  "minimumIOS": "14.0",
+  "defaultCoordinate": {
+    "latitude": 24.7136,
+    "longitude": 46.6753
+  },
+  "map": {
+    "distanceMeters": 900,
+    "type": "standard"
+  },
+  "limits": {
+    "favorites": 100,
+    "history": 50
+  }
+}
