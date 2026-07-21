@@ -1,0 +1,9 @@
+"APP_NAME" = "FAKE GPS";
+"ACTIVATE_LOCATION" = "تفعيل الموقع";
+"STOP_LOCATION" = "إيقاف الموقع";
+"HIDE_ICON" = "إخفاء الأيقونة";
+"CLOSE" = "إغلاق";
+"SEARCH_PLACEHOLDER" = "مدينة، عنوان، أو إحداثيات";
+"ACTIVATION_TITLE" = "تفعيل FAKE GPS";
+"ACTIVATION_SUCCESS" = "تم التفعيل بنجاح";
+"ACTIVATION_FAILED" = "فشل التفعيل";
