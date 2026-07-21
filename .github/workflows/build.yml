@@ -1,6 +1,6 @@
 name: Build FAKE GPS DEB
 
-# Build trigger: 2026-07-21 floating-menu-rebuild
+# Build trigger: 2026-07-21 full-location-engine
 on:
   workflow_dispatch:
   push:
@@ -43,14 +43,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          required=(Makefile control FakeGPS.mm gpsq.plist)
+          required=(Makefile control FakeGPS.mm SharedBridge.xm LocationSpoof.xm gpsq.plist FakeGPSLocation.plist)
           for file in "${required[@]}"; do
             test -f "$file" || { echo "Missing required file: $file"; exit 1; }
             echo "Found: $file"
           done
-          grep -q 'gpsq_FILES.*FakeGPS.mm' Makefile
-          grep -q 'TWEAK_NAME.*gpsq' Makefile
+          grep -q 'TWEAK_NAME.*gpsq.*FakeGPSLocation' Makefile
+          grep -q 'gpsq_FILES.*FakeGPS.mm.*SharedBridge.xm' Makefile
+          grep -q 'FakeGPSLocation_FILES.*LocationSpoof.xm' Makefile
           grep -q 'com.apple.springboard' gpsq.plist
+          grep -q 'CLLocationManager' FakeGPSLocation.plist
 
       - name: Install Theos toolchain and SDK
         shell: bash
