@@ -1,0 +1,233 @@
+name: Manual GPSQ Repair Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_ios:
+        description: Build iOS tweak
+        required: true
+        default: true
+        type: boolean
+      build_panel:
+        description: Build PHP panel
+        required: true
+        default: true
+        type: boolean
+      clean_build:
+        description: Delete previous build files
+        required: true
+        default: true
+        type: boolean
+      max_attempts:
+        description: Build attempts
+        required: true
+        default: "3"
+        type: choice
+        options: ["1", "2", "3"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gpsq-manual-repair-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CI: true
+
+jobs:
+  inspect:
+    name: Inspect repository
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Validate required files
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          required_files=(
+            Makefile control gpsq.plist FakeGPSLocation.plist
+            FakeGPS.mm SharedBridge.xm FeaturePack.xm LocationSpoof.xm
+            Resources/Info.plist scripts/clean.sh scripts/validate.sh scripts/build.sh
+          )
+          failed=0
+          for file in "${required_files[@]}"; do
+            if [[ -f "$file" ]]; then
+              echo "OK: $file"
+            else
+              echo "MISSING: $file" >&2
+              failed=1
+            fi
+          done
+          exit "$failed"
+
+  ios-repair:
+    name: Repair and build iOS
+    if: ${{ inputs.build_ios }}
+    needs: inspect
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    env:
+      THEOS: ${{ github.workspace }}/theos
+      THEOS_PACKAGE_SCHEME: rootless
+      MAX_BUILD_ATTEMPTS: ${{ inputs.max_attempts }}
+      RETRY_DELAY_SECONDS: "5"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install Linux dependencies
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update
+          sudo apt-get install -y bash curl git make perl python3 build-essential fakeroot dpkg-dev xz-utils unzip zip libplist-utils file rsync ca-certificates
+      - name: Clean project
+        if: ${{ inputs.clean_build }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          rm -rf .theos obj packages artifacts
+          mkdir -p artifacts/logs artifacts/dylibs
+      - name: Validate scripts and plists
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          bash -n scripts/clean.sh
+          bash -n scripts/validate.sh
+          bash -n scripts/build.sh
+          plistutil -lint Resources/Info.plist
+          plistutil -lint gpsq.plist
+          plistutil -lint FakeGPSLocation.plist
+          chmod +x scripts/clean.sh scripts/validate.sh scripts/build.sh
+      - name: Install Theos
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          rm -rf "$THEOS"
+          installer="$(mktemp)"
+          curl --fail --silent --show-error --location --retry 5 --retry-delay 3 --connect-timeout 20 --max-time 180 \
+            https://raw.githubusercontent.com/theos/theos/master/bin/install-theos \
+            -o "$installer"
+          chmod +x "$installer"
+          yes n | bash "$installer"
+          test -f "$THEOS/makefiles/common.mk"
+          test -x "$THEOS/toolchain/linux/iphone/bin/clang"
+          sdk_path="$(find "$THEOS/sdks" -maxdepth 1 -type d -name '*.sdk' -print -quit)"
+          test -n "$sdk_path"
+          echo "Using SDK: $sdk_path"
+          "$THEOS/toolchain/linux/iphone/bin/clang" --version
+      - name: Validate project
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mkdir -p artifacts/logs
+          set +e
+          bash scripts/validate.sh 2>&1 | tee artifacts/logs/validation.log
+          status=${PIPESTATUS[0]}
+          set -e
+          exit "$status"
+      - name: Build with retry
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          attempts="${MAX_BUILD_ATTEMPTS}"
+          final_status=1
+          for ((attempt=1; attempt<=attempts; attempt++)); do
+            echo "Build attempt $attempt/$attempts"
+            rm -rf .theos obj packages
+            mkdir -p artifacts/logs artifacts/dylibs
+            log_file="artifacts/logs/build-attempt-${attempt}.log"
+            set +e
+            make clean package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless messages=yes -j1 2>&1 | tee "$log_file"
+            status=${PIPESTATUS[0]}
+            set -e
+            if [[ "$status" -eq 0 ]]; then
+              final_status=0
+              break
+            fi
+            grep -nE 'error:|fatal error:|Undefined symbols|duplicate symbol|ld:|make(\[[0-9]+\])?: \*\*\*' "$log_file" >&2 || true
+            [[ "$attempt" -lt "$attempts" ]] && sleep 5
+          done
+          exit "$final_status"
+      - name: Collect iOS outputs
+        if: success()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mkdir -p artifacts/dylibs
+          find packages -type f -name '*.deb' -exec cp -f {} artifacts/ \;
+          find .theos -type f -name '*.dylib' -exec cp -f {} artifacts/dylibs/ \;
+          deb_count="$(find artifacts -maxdepth 1 -type f -name '*.deb' | wc -l | tr -d ' ')"
+          dylib_count="$(find artifacts/dylibs -maxdepth 1 -type f -name '*.dylib' | wc -l | tr -d ' ')"
+          test "$deb_count" -ge 1
+          test "$dylib_count" -ge 2
+          find artifacts -type f \( -name '*.deb' -o -name '*.dylib' \) -print0 | sort -z | xargs -0 sha256sum > artifacts/IOS_SHA256SUMS.txt
+          printf 'status=success\ndeb_count=%s\ndylib_count=%s\ncommit=%s\n' "$deb_count" "$dylib_count" "$GITHUB_SHA" > artifacts/IOS_BUILD_RESULT.txt
+      - name: Create failure summary
+        if: failure()
+        shell: bash
+        run: |
+          mkdir -p artifacts/logs
+          printf 'status=failed\ncommit=%s\nworkflow=%s\nrun_id=%s\n' "$GITHUB_SHA" "$GITHUB_WORKFLOW" "$GITHUB_RUN_ID" > artifacts/IOS_BUILD_RESULT.txt
+      - name: Upload iOS artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: GPSQ-Manual-iOS-${{ github.run_number }}
+          path: artifacts/**
+          if-no-files-found: warn
+          retention-days: 30
+
+  panel-repair:
+    name: Repair and build PHP panel
+    if: ${{ inputs.build_panel }}
+    needs: inspect
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install PHP dependencies
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update
+          sudo apt-get install -y php-cli php-sqlite3 sqlite3 dpkg-dev fakeroot file
+          php --version
+          php -m | grep -i sqlite
+      - name: Validate panel files
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test -f server/build-deb.sh
+          test -d server/public
+          test -f server/schema.sql
+          bash -n server/build-deb.sh
+          find server -type f -name '*.php' -print0 | xargs -0 -r -n1 php -l
+          php -r '$pdo = new PDO("sqlite::memory:"); $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION); echo "SQLite PDO OK\n";'
+      - name: Build PHP panel
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          rm -rf artifacts
+          mkdir -p artifacts/logs
+          set +e
+          bash server/build-deb.sh 2>&1 | tee artifacts/logs/php-panel-build.log
+          status=${PIPESTATUS[0]}
+          set -e
+          [[ "$status" -eq 0 ]] || exit "$status"
+          panel_deb="$(find artifacts -maxdepth 1 -type f -name 'gpsq-panel_*.deb' -print -quit)"
+          test -n "$panel_deb"
+          dpkg-deb --info "$panel_deb"
+          dpkg-deb --contents "$panel_deb"
+          sha256sum "$panel_deb" > artifacts/PANEL_SHA256SUMS.txt
+          printf 'status=success\nfile=%s\ncommit=%s\n' "$(basename "$panel_deb")" "$GITHUB_SHA" > artifacts/PANEL_BUILD_RESULT.txt
+      - name: Upload panel artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: GPSQ-Manual-Panel-${{ github.run_number }}
+          path: artifacts/**
+          if-no-files-found: warn
+          retention-days: 30
