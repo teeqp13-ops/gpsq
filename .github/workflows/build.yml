@@ -36,23 +36,14 @@ jobs:
           done
           plutil -lint Resources/Info.plist
 
-      - name: Install build dependencies
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          brew update
-          brew install ldid xz dpkg make
-          command -v ldid
-          command -v dpkg-deb
-          command -v gmake
-
-      - name: Install Theos
+      - name: Install Theos using official installer
         shell: bash
         run: |
           set -Eeuo pipefail
           rm -rf "$THEOS"
-          git clone --recursive --depth=1 https://github.com/theos/theos.git "$THEOS"
+          bash -c "$(curl -fsSL https://raw.githubusercontent.com/theos/theos/master/bin/install-theos)"
           test -f "$THEOS/makefiles/common.mk"
+          test -x "$THEOS/bin/logos.pl"
           xcodebuild -version
           SDK_PATH="$(xcrun --sdk iphoneos --show-sdk-path)"
           test -d "$SDK_PATH"
@@ -64,7 +55,6 @@ jobs:
           set -Eeuo pipefail
           rm -rf .theos obj packages artifacts
           mkdir -p artifacts/dylibs artifacts/logs
-          export PATH="$(brew --prefix make)/libexec/gnubin:$PATH"
           make clean || true
           set +e
           make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless messages=yes -j2 2>&1 | tee artifacts/logs/ios-build.log
@@ -80,7 +70,6 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          mapfile_cmd=''
           find packages -type f -name '*.deb' -exec cp -f {} artifacts/ \;
           find .theos -type f -name '*.dylib' -exec cp -f {} artifacts/dylibs/ \;
 
@@ -91,14 +80,16 @@ jobs:
           test "$DEB_COUNT" -ge 1
           test "$DYLIB_COUNT" -ge 2
 
+          : > artifacts/IOS_SHA256SUMS.txt
+          while IFS= read -r file_path; do
+            shasum -a 256 "$file_path" >> artifacts/IOS_SHA256SUMS.txt
+          done < <(find artifacts -type f \( -name '*.deb' -o -name '*.dylib' \) -print | LC_ALL=C sort)
+
           while IFS= read -r dylib; do
             file "$dylib"
             lipo -info "$dylib" || true
           done < <(find artifacts/dylibs -type f -name '*.dylib' -print)
 
-          find artifacts -type f \( -name '*.deb' -o -name '*.dylib' \) -print0 \
-            | sort -z \
-            | xargs -0 shasum -a 256 > artifacts/IOS_SHA256SUMS.txt
           printf 'status=success\nplatform=macos-14\ndeb_count=%s\ndylib_count=%s\n' "$DEB_COUNT" "$DYLIB_COUNT" > artifacts/IOS_BUILD_RESULT.txt
           find artifacts -maxdepth 2 -type f -print
 
