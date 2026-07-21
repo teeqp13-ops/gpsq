@@ -1,0 +1,8 @@
+{
+    Filter = {
+        Classes = (
+            "CLLocation",
+            "CLLocationManager"
+        );
+    };
+}
