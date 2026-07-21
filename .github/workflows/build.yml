@@ -27,11 +27,13 @@ permissions:
 
 env:
   THEOS: ${{ github.workspace }}/theos
+  MAX_BUILD_ATTEMPTS: 5
+  RETRY_DELAY_SECONDS: 5
 
 jobs:
   build:
     runs-on: ubuntu-22.04
-    timeout-minutes: 35
+    timeout-minutes: 45
 
     steps:
       - name: Checkout
@@ -41,10 +43,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y bash curl git make perl python3 build-essential fakeroot xz-utils unzip libplist-utils
-
-      - name: Validate repository
-        shell: bash
-        run: bash scripts/validate.sh
 
       - name: Install Theos toolchain and SDK
         shell: bash
@@ -56,7 +54,7 @@ jobs:
           test -n "$(find "$THEOS/sdks" -maxdepth 1 -type d -name '*.sdk' -print -quit)"
           "$THEOS/toolchain/linux/iphone/bin/clang" --version
 
-      - name: Build rootless package
+      - name: Validate clean and build with retries
         shell: bash
         run: bash scripts/build.sh
 
@@ -67,7 +65,8 @@ jobs:
           name: FAKE-GPS-${{ github.run_number }}
           path: |
             artifacts/*.deb
-            artifacts/build.log
+            artifacts/*.log
             artifacts/SHA256SUMS.txt
+            artifacts/BUILD_RESULT.txt
           if-no-files-found: warn
           retention-days: 30
