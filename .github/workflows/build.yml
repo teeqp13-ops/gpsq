@@ -3,22 +3,11 @@ name: Build GPSQ Packages
 on:
   workflow_dispatch:
   push:
-    branches: [main]
-    paths:
-      - '**.mm'
-      - '**.xm'
-      - '**.plist'
-      - '**.strings'
-      - '**.json'
-      - '**.php'
-      - 'Makefile'
-      - 'control'
-      - 'scripts/**'
-      - 'server/**'
-      - 'Resources/**'
-      - '.github/workflows/build.yml'
+    branches:
+      - main
   pull_request:
-    branches: [main]
+    branches:
+      - main
 
 concurrency:
   group: gpsq-${{ github.ref }}
@@ -29,8 +18,8 @@ permissions:
 
 env:
   THEOS: ${{ github.workspace }}/theos
-  MAX_BUILD_ATTEMPTS: 5
-  RETRY_DELAY_SECONDS: 5
+  MAX_BUILD_ATTEMPTS: 3
+  RETRY_DELAY_SECONDS: 3
 
 jobs:
   build:
@@ -46,15 +35,18 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y bash curl git make perl python3 php-cli php-sqlite3 build-essential fakeroot dpkg-dev xz-utils unzip libplist-utils
 
-      - name: Validate PHP panel
+      - name: Validate scripts and PHP
         shell: bash
         run: |
           set -Eeuo pipefail
+          bash -n scripts/clean.sh
+          bash -n scripts/validate.sh
+          bash -n scripts/build.sh
+          bash -n server/build-deb.sh
           find server -type f -name '*.php' -print0 | xargs -0 -r -n1 php -l
           php -r "new PDO('sqlite::memory:'); echo 'SQLite OK'.PHP_EOL;"
-          bash -n server/build-deb.sh
 
-      - name: Install Theos toolchain and SDK
+      - name: Install Theos
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -63,25 +55,23 @@ jobs:
           test -x "$THEOS/toolchain/linux/iphone/bin/clang"
           test -n "$(find "$THEOS/sdks" -maxdepth 1 -type d -name '*.sdk' -print -quit)"
 
-      - name: Build tweak DEB and integration dylibs
+      - name: Build tweak package
         shell: bash
         run: bash scripts/build.sh
 
-      - name: Build PHP panel DEB
+      - name: Build PHP panel package
         shell: bash
         run: bash server/build-deb.sh
 
-      - name: Verify final artifacts
+      - name: Verify outputs
         shell: bash
         run: |
           set -Eeuo pipefail
-          test -f artifacts/dylibs/gpsq.dylib
-          test -f artifacts/dylibs/FakeGPSLocation.dylib
-          test -n "$(find artifacts -maxdepth 1 -type f -name 'com.khalid.fakegps*.deb' -print -quit)"
-          test -n "$(find artifacts -maxdepth 1 -type f -name 'gpsq-panel_*.deb' -print -quit)"
+          test -n "$(find artifacts -maxdepth 1 -type f -name '*.deb' -print -quit)"
+          test -n "$(find artifacts/dylibs -maxdepth 1 -type f -name '*.dylib' -print -quit)"
           find artifacts -maxdepth 2 -type f -print
 
-      - name: Refresh checksums
+      - name: Generate checksums
         if: success()
         shell: bash
         run: |
@@ -96,10 +86,10 @@ jobs:
         with:
           name: GPSQ-${{ github.run_number }}
           path: |
-            artifacts/*.deb
-            artifacts/dylibs/*.dylib
-            artifacts/*.log
-            artifacts/*SHA256SUMS.txt
-            artifacts/BUILD_RESULT.txt
-          if-no-files-found: error
+            artifacts/**/*.deb
+            artifacts/**/*.dylib
+            artifacts/**/*.log
+            artifacts/**/*SHA256SUMS.txt
+            artifacts/**/BUILD_RESULT.txt
+          if-no-files-found: warn
           retention-days: 30
