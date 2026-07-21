@@ -1,8 +1,8 @@
 Package: com.khalid.fakegps
 Name: FAKE GPS
-Version: 2.0.0
+Version: 2.0.1
 Architecture: iphoneos-arm
-Description: FAKE GPS with full-screen map, activation, floating control, photo picker, saved position, and location tools.
+Description: Rootless FAKE GPS tweak with map selection, activation, favorites, history, shared location engine, and Arabic resources.
 Maintainer: Khalid
 Author: Khalid
 Section: Tweaks
