@@ -22,6 +22,7 @@ jobs:
     env:
       THEOS: ${{ github.workspace }}/theos
       THEOS_PACKAGE_SCHEME: rootless
+      CI: true
 
     steps:
       - name: Checkout
@@ -32,7 +33,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           sudo apt-get update
-          sudo apt-get install -y bash curl git make perl python3 build-essential fakeroot dpkg-dev xz-utils unzip libplist-utils file
+          sudo apt-get install -y bash curl git make perl python3 build-essential fakeroot dpkg-dev xz-utils unzip libplist-utils file rsync ca-certificates
 
       - name: Validate project
         shell: bash
@@ -51,7 +52,12 @@ jobs:
         run: |
           set -Eeuo pipefail
           rm -rf "$THEOS"
-          bash -c "$(curl -fsSL https://raw.githubusercontent.com/theos/theos/master/bin/install-theos)"
+          INSTALLER="$(mktemp)"
+          curl --retry 3 --retry-delay 2 -fsSL \
+            https://raw.githubusercontent.com/theos/theos/master/bin/install-theos \
+            -o "$INSTALLER"
+          chmod +x "$INSTALLER"
+          yes n | bash "$INSTALLER"
           test -f "$THEOS/makefiles/common.mk"
           test -x "$THEOS/toolchain/linux/iphone/bin/clang"
           SDK_PATH="$(find "$THEOS/sdks" -maxdepth 1 -type d -name '*.sdk' -print -quit)"
