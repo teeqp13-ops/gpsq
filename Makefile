@@ -8,7 +8,7 @@ include $(THEOS)/makefiles/common.mk
 
 TWEAK_NAME := gpsq FakeGPSLocation
 
-gpsq_FILES := FakeGPS.mm SharedBridge.xm
+gpsq_FILES := FakeGPS.mm SharedBridge.xm FeaturePack.xm
 gpsq_FRAMEWORKS := UIKit Foundation QuartzCore MapKit CoreLocation AVFoundation
 gpsq_CFLAGS := -fobjc-arc -Wno-deprecated-declarations -Wno-unused-function -Wno-unused-variable
 gpsq_LDFLAGS := -Wl,-dead_strip
