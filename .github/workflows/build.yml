@@ -18,9 +18,10 @@ jobs:
   ios-tweak:
     name: Build iOS DEB and dylibs
     runs-on: macos-14
-    timeout-minutes: 35
+    timeout-minutes: 40
     env:
       THEOS: ${{ github.workspace }}/theos
+      THEOS_PACKAGE_SCHEME: rootless
 
     steps:
       - name: Checkout
@@ -30,15 +31,20 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          test -f Makefile
-          test -f control
-          test -f gpsq.plist
-          test -f FakeGPSLocation.plist
-          test -f FakeGPS.mm
-          test -f SharedBridge.xm
-          test -f FeaturePack.xm
-          test -f LocationSpoof.xm
+          for file in Makefile control gpsq.plist FakeGPSLocation.plist FakeGPS.mm SharedBridge.xm FeaturePack.xm LocationSpoof.xm Resources/Info.plist; do
+            test -f "$file" || { echo "Missing required file: $file" >&2; exit 1; }
+          done
           plutil -lint Resources/Info.plist
+
+      - name: Install build dependencies
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          brew update
+          brew install ldid xz dpkg make
+          command -v ldid
+          command -v dpkg-deb
+          command -v gmake
 
       - name: Install Theos
         shell: bash
@@ -48,7 +54,9 @@ jobs:
           git clone --recursive --depth=1 https://github.com/theos/theos.git "$THEOS"
           test -f "$THEOS/makefiles/common.mk"
           xcodebuild -version
-          xcrun --sdk iphoneos --show-sdk-path
+          SDK_PATH="$(xcrun --sdk iphoneos --show-sdk-path)"
+          test -d "$SDK_PATH"
+          echo "Using SDK: $SDK_PATH"
 
       - name: Build rootless tweak package
         shell: bash
@@ -56,25 +64,42 @@ jobs:
           set -Eeuo pipefail
           rm -rf .theos obj packages artifacts
           mkdir -p artifacts/dylibs artifacts/logs
-          make clean
+          export PATH="$(brew --prefix make)/libexec/gnubin:$PATH"
+          make clean || true
           set +e
           make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless messages=yes -j2 2>&1 | tee artifacts/logs/ios-build.log
           status=${PIPESTATUS[0]}
           set -e
           if [ "$status" -ne 0 ]; then
+            echo 'Detected compiler/linker errors:' >&2
+            grep -nE 'error:|fatal error:|Undefined symbols|duplicate symbol|ld:' artifacts/logs/ios-build.log >&2 || true
             exit "$status"
           fi
 
-      - name: Collect iOS outputs
+      - name: Collect and verify iOS outputs
         shell: bash
         run: |
           set -Eeuo pipefail
+          mapfile_cmd=''
           find packages -type f -name '*.deb' -exec cp -f {} artifacts/ \;
           find .theos -type f -name '*.dylib' -exec cp -f {} artifacts/dylibs/ \;
-          test -n "$(find artifacts -maxdepth 1 -type f -name '*.deb' -print -quit)"
-          test -n "$(find artifacts/dylibs -type f -name '*.dylib' -print -quit)"
-          find artifacts -type f \( -name '*.deb' -o -name '*.dylib' \) -print0 | sort -z | xargs -0 shasum -a 256 > artifacts/IOS_SHA256SUMS.txt
-          printf 'status=success\nplatform=macos-14\n' > artifacts/IOS_BUILD_RESULT.txt
+
+          DEB_COUNT="$(find artifacts -maxdepth 1 -type f -name '*.deb' | wc -l | tr -d ' ')"
+          DYLIB_COUNT="$(find artifacts/dylibs -type f -name '*.dylib' | wc -l | tr -d ' ')"
+          echo "DEB count: $DEB_COUNT"
+          echo "dylib count: $DYLIB_COUNT"
+          test "$DEB_COUNT" -ge 1
+          test "$DYLIB_COUNT" -ge 2
+
+          while IFS= read -r dylib; do
+            file "$dylib"
+            lipo -info "$dylib" || true
+          done < <(find artifacts/dylibs -type f -name '*.dylib' -print)
+
+          find artifacts -type f \( -name '*.deb' -o -name '*.dylib' \) -print0 \
+            | sort -z \
+            | xargs -0 shasum -a 256 > artifacts/IOS_SHA256SUMS.txt
+          printf 'status=success\nplatform=macos-14\ndeb_count=%s\ndylib_count=%s\n' "$DEB_COUNT" "$DYLIB_COUNT" > artifacts/IOS_BUILD_RESULT.txt
           find artifacts -maxdepth 2 -type f -print
 
       - name: Upload iOS artifacts
@@ -104,6 +129,10 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
+          test -f server/build-deb.sh
+          test -f server/schema.sql
+          test -f server/public/index.php
+          test -f server/public/api/config.php
           bash -n server/build-deb.sh
           find server -type f -name '*.php' -print0 | xargs -0 -r -n1 php -l
           php -r "new PDO('sqlite::memory:'); echo 'SQLite OK'.PHP_EOL;"
@@ -112,10 +141,13 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
+          rm -rf artifacts
           mkdir -p artifacts
           bash server/build-deb.sh 2>&1 | tee artifacts/php-panel-build.log
-          test -n "$(find artifacts -maxdepth 1 -type f -name 'gpsq-panel_*.deb' -print -quit)"
-          find artifacts -maxdepth 1 -type f -name '*.deb' -print0 | sort -z | xargs -0 sha256sum > artifacts/PANEL_SHA256SUMS.txt
+          PANEL_DEB="$(find artifacts -maxdepth 1 -type f -name 'gpsq-panel_*.deb' -print -quit)"
+          test -n "$PANEL_DEB"
+          dpkg-deb --info "$PANEL_DEB"
+          sha256sum "$PANEL_DEB" > artifacts/PANEL_SHA256SUMS.txt
           printf 'status=success\nplatform=ubuntu-22.04\n' > artifacts/PANEL_BUILD_RESULT.txt
 
       - name: Upload panel artifacts
