@@ -49,7 +49,7 @@ jobs:
       - name: Install Theos toolchain and SDK
         shell: bash
         run: |
-          set -euo pipefail
+          set -Eeuo pipefail
           rm -rf "$THEOS"
           bash -c "$(curl -fsSL https://raw.githubusercontent.com/theos/theos/master/bin/install-theos)"
           test -x "$THEOS/toolchain/linux/iphone/bin/clang"
@@ -58,26 +58,7 @@ jobs:
 
       - name: Build rootless package
         shell: bash
-        run: |
-          set +e
-          mkdir -p artifacts
-          make clean
-          make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless messages=yes -j1 2>&1 | tee artifacts/build.log
-          status=${PIPESTATUS[0]}
-          echo ""
-          echo "========== BUILD ERRORS =========="
-          grep -nE 'error:|fatal error:|Undefined symbols|duplicate symbol|ld:|make\[[0-9]+\]: \*\*\*' artifacts/build.log || true
-          echo "=================================="
-          exit "$status"
-
-      - name: Collect package
-        if: success()
-        shell: bash
-        run: |
-          find packages -type f -name '*.deb' -exec cp -v {} artifacts/ \;
-          test -n "$(find artifacts -maxdepth 1 -type f -name '*.deb' -print -quit)"
-          sha256sum artifacts/*.deb > artifacts/SHA256SUMS.txt
-          ls -lah artifacts
+        run: bash scripts/build.sh
 
       - name: Upload build files
         if: always()
