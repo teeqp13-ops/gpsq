@@ -1,0 +1,69 @@
+name: Build BYANO Independent Activation
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'integrations/byano-independent/**'
+      - '.github/workflows/byano-independent.yml'
+
+permissions:
+  contents: read
+
+env:
+  THEOS: ${{ github.workspace }}/theos
+  CI: true
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bash curl git make perl python3 build-essential fakeroot dpkg-dev xz-utils unzip libplist-utils file rsync ca-certificates
+
+      - name: Install Theos
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          rm -rf "$THEOS"
+          INSTALLER="$(mktemp)"
+          curl --retry 3 --retry-delay 2 -fsSL https://raw.githubusercontent.com/theos/theos/master/bin/install-theos -o "$INSTALLER"
+          chmod +x "$INSTALLER"
+          yes n | bash "$INSTALLER"
+          test -f "$THEOS/makefiles/common.mk"
+          test -x "$THEOS/toolchain/linux/iphone/bin/clang"
+          test -n "$(find "$THEOS/sdks" -maxdepth 1 -type d -name '*.sdk' -print -quit)"
+
+      - name: Validate project
+        working-directory: integrations/byano-independent
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test -f Makefile
+          test -f control
+          test -f BYANOActivation.plist
+          test -f GPSPlusActivation.mm
+          bash -n build.sh
+          bash -n install_external_config.sh
+          plistutil -lint ExternalLicense.sample.plist
+
+      - name: Build DEB and dylib
+        working-directory: integrations/byano-independent
+        shell: bash
+        run: bash build.sh
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: BYANO-Independent-${{ github.run_number }}
+          path: integrations/byano-independent/artifacts/**
+          if-no-files-found: error
+          retention-days: 30
