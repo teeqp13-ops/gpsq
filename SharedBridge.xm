@@ -1,5 +1,6 @@
 #import <UIKit/UIKit.h>
 #import <Foundation/Foundation.h>
+#import <math.h>
 
 static CFStringRef const FGSharedDomain = CFSTR("fun.p3nd.fakegps");
 
