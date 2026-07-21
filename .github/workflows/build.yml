@@ -3,93 +3,126 @@ name: Build GPSQ Packages
 on:
   workflow_dispatch:
   push:
-    branches:
-      - main
+    branches: [main]
   pull_request:
-    branches:
-      - main
+    branches: [main]
+
+permissions:
+  contents: read
 
 concurrency:
   group: gpsq-${{ github.ref }}
   cancel-in-progress: true
 
-permissions:
-  contents: read
-
-env:
-  THEOS: ${{ github.workspace }}/theos
-  MAX_BUILD_ATTEMPTS: 3
-  RETRY_DELAY_SECONDS: 3
-
 jobs:
-  build:
-    runs-on: ubuntu-22.04
-    timeout-minutes: 45
+  ios-tweak:
+    name: Build iOS DEB and dylibs
+    runs-on: macos-14
+    timeout-minutes: 35
+    env:
+      THEOS: ${{ github.workspace }}/theos
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y bash curl git make perl python3 php-cli php-sqlite3 build-essential fakeroot dpkg-dev xz-utils unzip libplist-utils
-
-      - name: Validate scripts and PHP
+      - name: Validate project files
         shell: bash
         run: |
           set -Eeuo pipefail
-          bash -n scripts/clean.sh
-          bash -n scripts/validate.sh
-          bash -n scripts/build.sh
-          bash -n server/build-deb.sh
-          find server -type f -name '*.php' -print0 | xargs -0 -r -n1 php -l
-          php -r "new PDO('sqlite::memory:'); echo 'SQLite OK'.PHP_EOL;"
+          test -f Makefile
+          test -f control
+          test -f gpsq.plist
+          test -f FakeGPSLocation.plist
+          test -f FakeGPS.mm
+          test -f SharedBridge.xm
+          test -f FeaturePack.xm
+          test -f LocationSpoof.xm
+          plutil -lint Resources/Info.plist
 
       - name: Install Theos
         shell: bash
         run: |
           set -Eeuo pipefail
           rm -rf "$THEOS"
-          bash -c "$(curl -fsSL https://raw.githubusercontent.com/theos/theos/master/bin/install-theos)"
-          test -x "$THEOS/toolchain/linux/iphone/bin/clang"
-          test -n "$(find "$THEOS/sdks" -maxdepth 1 -type d -name '*.sdk' -print -quit)"
+          git clone --recursive --depth=1 https://github.com/theos/theos.git "$THEOS"
+          test -f "$THEOS/makefiles/common.mk"
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-path
 
-      - name: Build tweak package
-        shell: bash
-        run: bash scripts/build.sh
-
-      - name: Build PHP panel package
-        shell: bash
-        run: bash server/build-deb.sh
-
-      - name: Verify outputs
+      - name: Build rootless tweak package
         shell: bash
         run: |
           set -Eeuo pipefail
+          rm -rf .theos obj packages artifacts
+          mkdir -p artifacts/dylibs artifacts/logs
+          make clean
+          set +e
+          make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless messages=yes -j2 2>&1 | tee artifacts/logs/ios-build.log
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -ne 0 ]; then
+            exit "$status"
+          fi
+
+      - name: Collect iOS outputs
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          find packages -type f -name '*.deb' -exec cp -f {} artifacts/ \;
+          find .theos -type f -name '*.dylib' -exec cp -f {} artifacts/dylibs/ \;
           test -n "$(find artifacts -maxdepth 1 -type f -name '*.deb' -print -quit)"
-          test -n "$(find artifacts/dylibs -maxdepth 1 -type f -name '*.dylib' -print -quit)"
+          test -n "$(find artifacts/dylibs -type f -name '*.dylib' -print -quit)"
+          find artifacts -type f \( -name '*.deb' -o -name '*.dylib' \) -print0 | sort -z | xargs -0 shasum -a 256 > artifacts/IOS_SHA256SUMS.txt
+          printf 'status=success\nplatform=macos-14\n' > artifacts/IOS_BUILD_RESULT.txt
           find artifacts -maxdepth 2 -type f -print
 
-      - name: Generate checksums
-        if: success()
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          find artifacts -type f \( -name '*.deb' -o -name '*.dylib' \) -print0 \
-            | sort -z \
-            | xargs -0 sha256sum > artifacts/ALL_SHA256SUMS.txt
-
-      - name: Upload build files
+      - name: Upload iOS artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: GPSQ-${{ github.run_number }}
-          path: |
-            artifacts/**/*.deb
-            artifacts/**/*.dylib
-            artifacts/**/*.log
-            artifacts/**/*SHA256SUMS.txt
-            artifacts/**/BUILD_RESULT.txt
+          name: GPSQ-iOS-${{ github.run_number }}
+          path: artifacts/**
+          if-no-files-found: warn
+          retention-days: 30
+
+  php-panel:
+    name: Build PHP panel DEB
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install PHP and packaging tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y php-cli php-sqlite3 sqlite3 dpkg-dev fakeroot
+
+      - name: Validate PHP panel
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          bash -n server/build-deb.sh
+          find server -type f -name '*.php' -print0 | xargs -0 -r -n1 php -l
+          php -r "new PDO('sqlite::memory:'); echo 'SQLite OK'.PHP_EOL;"
+
+      - name: Build panel package
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mkdir -p artifacts
+          bash server/build-deb.sh 2>&1 | tee artifacts/php-panel-build.log
+          test -n "$(find artifacts -maxdepth 1 -type f -name 'gpsq-panel_*.deb' -print -quit)"
+          find artifacts -maxdepth 1 -type f -name '*.deb' -print0 | sort -z | xargs -0 sha256sum > artifacts/PANEL_SHA256SUMS.txt
+          printf 'status=success\nplatform=ubuntu-22.04\n' > artifacts/PANEL_BUILD_RESULT.txt
+
+      - name: Upload panel artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: GPSQ-Panel-${{ github.run_number }}
+          path: artifacts/**
           if-no-files-found: warn
           retention-days: 30
