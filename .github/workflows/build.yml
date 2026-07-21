@@ -9,9 +9,10 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
-  group: gpsq-${{ github.ref }}
+  group: gpsq-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -23,6 +24,8 @@ jobs:
       THEOS: ${{ github.workspace }}/theos
       THEOS_PACKAGE_SCHEME: rootless
       CI: true
+      MAX_BUILD_ATTEMPTS: 3
+      RETRY_DELAY_SECONDS: 3
 
     steps:
       - name: Checkout
@@ -33,15 +36,33 @@ jobs:
         run: |
           set -Eeuo pipefail
           sudo apt-get update
-          sudo apt-get install -y bash curl git make perl python3 build-essential fakeroot dpkg-dev xz-utils unzip libplist-utils file rsync ca-certificates
+          sudo apt-get install -y \
+            bash curl git make perl python3 build-essential fakeroot \
+            dpkg-dev xz-utils unzip libplist-utils file rsync ca-certificates
 
-      - name: Validate project
+      - name: Validate project files
         shell: bash
         run: |
           set -Eeuo pipefail
-          for file in Makefile control gpsq.plist FakeGPSLocation.plist FakeGPS.mm SharedBridge.xm FeaturePack.xm LocationSpoof.xm Resources/Info.plist; do
+          required=(
+            Makefile
+            control
+            gpsq.plist
+            FakeGPSLocation.plist
+            FakeGPS.mm
+            SharedBridge.xm
+            FeaturePack.xm
+            LocationSpoof.xm
+            Resources/Info.plist
+            scripts/clean.sh
+            scripts/validate.sh
+            scripts/build.sh
+          )
+
+          for file in "${required[@]}"; do
             test -f "$file" || { echo "Missing required file: $file" >&2; exit 1; }
           done
+
           plistutil -lint Resources/Info.plist
           bash -n scripts/clean.sh
           bash -n scripts/validate.sh
@@ -53,15 +74,21 @@ jobs:
           set -Eeuo pipefail
           rm -rf "$THEOS"
           INSTALLER="$(mktemp)"
-          curl --retry 3 --retry-delay 2 -fsSL \
+          trap 'rm -f "$INSTALLER"' EXIT
+
+          curl --retry 3 --retry-delay 2 --connect-timeout 20 -fsSL \
             https://raw.githubusercontent.com/theos/theos/master/bin/install-theos \
             -o "$INSTALLER"
+
           chmod +x "$INSTALLER"
           yes n | bash "$INSTALLER"
+
           test -f "$THEOS/makefiles/common.mk"
           test -x "$THEOS/toolchain/linux/iphone/bin/clang"
+
           SDK_PATH="$(find "$THEOS/sdks" -maxdepth 1 -type d -name '*.sdk' -print -quit)"
           test -n "$SDK_PATH"
+
           "$THEOS/toolchain/linux/iphone/bin/clang" --version
           echo "Using SDK: $SDK_PATH"
 
@@ -69,33 +96,27 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          rm -rf .theos obj packages artifacts
-          mkdir -p artifacts/dylibs artifacts/logs
-          set +e
-          make clean package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless messages=yes -j1 2>&1 | tee artifacts/logs/ios-build.log
-          status=${PIPESTATUS[0]}
-          set -e
-          if [ "$status" -ne 0 ]; then
-            grep -nE 'error:|fatal error:|Undefined symbols|duplicate symbol|ld:|make.*\*\*\*' artifacts/logs/ios-build.log >&2 || true
-            exit "$status"
-          fi
+          bash scripts/build.sh
 
-      - name: Collect outputs
+      - name: Verify iOS outputs
+        if: success()
         shell: bash
         run: |
           set -Eeuo pipefail
-          find packages -type f -name '*.deb' -exec cp -f {} artifacts/ \;
-          find .theos -type f -name '*.dylib' -exec cp -f {} artifacts/dylibs/ \;
 
           DEB_COUNT="$(find artifacts -maxdepth 1 -type f -name '*.deb' | wc -l | tr -d ' ')"
-          DYLIB_COUNT="$(find artifacts/dylibs -type f -name '*.dylib' | wc -l | tr -d ' ')"
-          test "$DEB_COUNT" -ge 1
-          test "$DYLIB_COUNT" -ge 2
+          DYLIB_COUNT="$(find artifacts/dylibs -maxdepth 1 -type f -name '*.dylib' | wc -l | tr -d ' ')"
+
+          test "$DEB_COUNT" -ge 1 || { echo 'No DEB package was generated.' >&2; exit 1; }
+          test "$DYLIB_COUNT" -ge 2 || { echo "Expected at least 2 dylibs, found $DYLIB_COUNT." >&2; exit 1; }
 
           find artifacts -type f \( -name '*.deb' -o -name '*.dylib' \) -print0 \
             | sort -z \
             | xargs -0 sha256sum > artifacts/IOS_SHA256SUMS.txt
-          printf 'status=success\ndeb_count=%s\ndylib_count=%s\n' "$DEB_COUNT" "$DYLIB_COUNT" > artifacts/IOS_BUILD_RESULT.txt
+
+          printf 'status=success\ndeb_count=%s\ndylib_count=%s\n' \
+            "$DEB_COUNT" "$DYLIB_COUNT" > artifacts/IOS_BUILD_RESULT.txt
+
           find artifacts -maxdepth 2 -type f -print
 
       - name: Upload iOS artifacts
@@ -117,25 +138,40 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y php-cli php-sqlite3 sqlite3 dpkg-dev fakeroot
-
-      - name: Validate and build panel
         shell: bash
         run: |
           set -Eeuo pipefail
+          sudo apt-get update
+          sudo apt-get install -y php-cli php-sqlite3 sqlite3 dpkg-dev fakeroot
+
+      - name: Validate PHP panel
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test -f server/build-deb.sh
+          test -d server/public
+          test -f server/schema.sql
+          test -f server/README_AR.md
+
           bash -n server/build-deb.sh
           find server -type f -name '*.php' -print0 | xargs -0 -r -n1 php -l
           php -r "new PDO('sqlite::memory:'); echo 'SQLite OK'.PHP_EOL;"
+
+      - name: Build PHP panel package
+        shell: bash
+        run: |
+          set -Eeuo pipefail
           rm -rf artifacts
           mkdir -p artifacts
+
           bash server/build-deb.sh 2>&1 | tee artifacts/php-panel-build.log
+
           PANEL_DEB="$(find artifacts -maxdepth 1 -type f -name 'gpsq-panel_*.deb' -print -quit)"
-          test -n "$PANEL_DEB"
+          test -n "$PANEL_DEB" || { echo 'Panel DEB was not generated.' >&2; exit 1; }
+
           dpkg-deb --info "$PANEL_DEB"
           sha256sum "$PANEL_DEB" > artifacts/PANEL_SHA256SUMS.txt
-          printf 'status=success\n' > artifacts/PANEL_BUILD_RESULT.txt
+          printf 'status=success\npackage=%s\n' "$(basename "$PANEL_DEB")" > artifacts/PANEL_BUILD_RESULT.txt
 
       - name: Upload panel artifacts
         if: always()
