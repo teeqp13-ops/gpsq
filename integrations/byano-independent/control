@@ -1,0 +1,9 @@
+Package: com.khalid.byano.activation
+Name: BYANO Independent Activation
+Version: 1.1.0
+Architecture: iphoneos-arm64
+Description: Independent external activation integration for BYANO.
+Maintainer: Khalid
+Author: Khalid
+Section: Tweaks
+Depends: mobilesubstrate
