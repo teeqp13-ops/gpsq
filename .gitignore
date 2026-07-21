@@ -1,17 +1,20 @@
 .theos/
-packages/
 obj/
-*.deb
-*.dSYM
-*.DS_Store
+packages/
+artifacts/
 build/
 DerivedData/
-artifacts/
+.DS_Store
+*.deb
+*.dylib
+*.o
+*.dSYM
+*.log
+*.tmp
+*.swp
 
-# قاعدة بيانات SQLite (لا تُضاف إلى git)
+# قواعد بيانات وإعدادات محلية حساسة
 *.db
 *.db-shm
 *.db-wal
-
-# ملف الإعدادات المحلي للسيرفر (يحتوي على مفاتيح سرية)
 server/public/api/config.local.php
