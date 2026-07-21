@@ -44,18 +44,15 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y bash curl git make perl python3 php-cli php-sqlite3 build-essential fakeroot xz-utils unzip libplist-utils
+          sudo apt-get install -y bash curl git make perl python3 php-cli php-sqlite3 build-essential fakeroot dpkg-dev xz-utils unzip libplist-utils
 
       - name: Validate PHP panel
         shell: bash
         run: |
           set -Eeuo pipefail
-          find server -type f -name '*.php' -print0 | xargs -0 -n1 php -l
+          find server -type f -name '*.php' -print0 | xargs -0 -r -n1 php -l
           php -r "new PDO('sqlite::memory:'); echo 'SQLite OK'.PHP_EOL;"
-
-      - name: Build PHP panel DEB
-        shell: bash
-        run: bash server/build-deb.sh
+          bash -n server/build-deb.sh
 
       - name: Install Theos toolchain and SDK
         shell: bash
@@ -66,9 +63,32 @@ jobs:
           test -x "$THEOS/toolchain/linux/iphone/bin/clang"
           test -n "$(find "$THEOS/sdks" -maxdepth 1 -type d -name '*.sdk' -print -quit)"
 
-      - name: Build tweak DEB with retries
+      - name: Build tweak DEB and integration dylibs
         shell: bash
         run: bash scripts/build.sh
+
+      - name: Build PHP panel DEB
+        shell: bash
+        run: bash server/build-deb.sh
+
+      - name: Verify final artifacts
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test -f artifacts/dylibs/gpsq.dylib
+          test -f artifacts/dylibs/FakeGPSLocation.dylib
+          test -n "$(find artifacts -maxdepth 1 -type f -name 'com.khalid.fakegps*.deb' -print -quit)"
+          test -n "$(find artifacts -maxdepth 1 -type f -name 'gpsq-panel_*.deb' -print -quit)"
+          find artifacts -maxdepth 2 -type f -print
+
+      - name: Refresh checksums
+        if: success()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          find artifacts -type f \( -name '*.deb' -o -name '*.dylib' \) -print0 \
+            | sort -z \
+            | xargs -0 sha256sum > artifacts/ALL_SHA256SUMS.txt
 
       - name: Upload build files
         if: always()
@@ -77,8 +97,9 @@ jobs:
           name: GPSQ-${{ github.run_number }}
           path: |
             artifacts/*.deb
+            artifacts/dylibs/*.dylib
             artifacts/*.log
             artifacts/*SHA256SUMS.txt
             artifacts/BUILD_RESULT.txt
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 30
