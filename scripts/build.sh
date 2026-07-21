@@ -18,6 +18,9 @@ RETRY_DELAY_SECONDS="${RETRY_DELAY_SECONDS:-5}"
 SESSION_LOG_DIR="$(mktemp -d)"
 trap 'rm -rf "$SESSION_LOG_DIR"' EXIT
 
+rm -rf artifacts
+mkdir -p artifacts/dylibs
+
 final_status=1
 successful_attempt=0
 
@@ -26,8 +29,8 @@ for ((attempt=1; attempt<=MAX_BUILD_ATTEMPTS; attempt++)); do
   echo "Build attempt $attempt of $MAX_BUILD_ATTEMPTS"
   echo "=================================================="
 
-  bash scripts/clean.sh
-  mkdir -p artifacts
+  KEEP_ARTIFACTS=1 bash scripts/clean.sh
+  mkdir -p artifacts/dylibs
 
   validation_log="$SESSION_LOG_DIR/validation-attempt-$attempt.log"
   build_log="$SESSION_LOG_DIR/build-attempt-$attempt.log"
@@ -48,21 +51,43 @@ for ((attempt=1; attempt<=MAX_BUILD_ATTEMPTS; attempt++)); do
 
     if (( build_status == 0 )); then
       mapfile -t built_packages < <(find packages -type f -name '*.deb' -print)
-      if (( ${#built_packages[@]} > 0 )); then
+      mapfile -t built_dylibs < <(find .theos -type f -name '*.dylib' -print)
+
+      if (( ${#built_packages[@]} == 0 )); then
+        echo "Attempt $attempt completed without producing a DEB package." >&2
+        final_status=3
+      elif (( ${#built_dylibs[@]} < 2 )); then
+        echo "Attempt $attempt produced fewer than two integration dylibs." >&2
+        printf 'Found dylibs:\n' >&2
+        printf '%s\n' "${built_dylibs[@]:-}" >&2
+        final_status=4
+      else
         for package in "${built_packages[@]}"; do
           cp -f "$package" artifacts/
         done
-        mapfile -t copied_packages < <(find artifacts -maxdepth 1 -type f -name '*.deb' -print)
-        sha256sum "${copied_packages[@]}" > artifacts/SHA256SUMS.txt
-        successful_attempt=$attempt
-        final_status=0
-        cp "$validation_log" artifacts/
-        cp "$build_log" artifacts/build.log
-        break
-      fi
 
-      echo "Attempt $attempt completed without producing a DEB package." >&2
-      final_status=3
+        rm -rf artifacts/dylibs
+        mkdir -p artifacts/dylibs
+        for dylib in "${built_dylibs[@]}"; do
+          cp -f "$dylib" artifacts/dylibs/
+        done
+
+        [[ -f artifacts/dylibs/gpsq.dylib ]] || { echo 'gpsq.dylib was not generated.' >&2; final_status=5; }
+        [[ -f artifacts/dylibs/FakeGPSLocation.dylib ]] || { echo 'FakeGPSLocation.dylib was not generated.' >&2; final_status=6; }
+
+        if (( final_status == 5 || final_status == 6 )); then
+          true
+        else
+          mapfile -t copied_packages < <(find artifacts -maxdepth 1 -type f -name '*.deb' -print)
+          mapfile -t copied_dylibs < <(find artifacts/dylibs -maxdepth 1 -type f -name '*.dylib' -print)
+          sha256sum "${copied_packages[@]}" "${copied_dylibs[@]}" > artifacts/SHA256SUMS.txt
+          successful_attempt=$attempt
+          final_status=0
+          cp "$validation_log" artifacts/
+          cp "$build_log" artifacts/build.log
+          break
+        fi
+      fi
     else
       echo "Build failed on attempt $attempt." >&2
       final_status=$build_status
@@ -84,7 +109,7 @@ cp -f "$SESSION_LOG_DIR"/*.log artifacts/ 2>/dev/null || true
 if (( final_status == 0 )); then
   printf 'status=success\nattempt=%s\nmax_attempts=%s\n' "$successful_attempt" "$MAX_BUILD_ATTEMPTS" > artifacts/BUILD_RESULT.txt
   echo "Build succeeded on attempt $successful_attempt of $MAX_BUILD_ATTEMPTS."
-  ls -lah artifacts
+  find artifacts -maxdepth 2 -type f -print
   exit 0
 fi
 
@@ -92,5 +117,5 @@ printf 'status=failed\nattempts=%s\nexit_code=%s\n' "$MAX_BUILD_ATTEMPTS" "$fina
 
 echo "Build failed after $MAX_BUILD_ATTEMPTS attempts." >&2
 echo "Final exit code: $final_status" >&2
-ls -lah artifacts >&2
+find artifacts -maxdepth 2 -type f -print >&2 || true
 exit "$final_status"
