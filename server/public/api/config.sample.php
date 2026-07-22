@@ -1,20 +1,12 @@
 <?php
 /**
- * نموذج ملف الإعدادات المحلي (config.local.php)
- *
- * انسخ هذا الملف إلى config.local.php وعدّل القيم حسب بيئتك.
- * لا تضف config.local.php إلى git أبداً (مضمّن في .gitignore).
- *
- * طريقة الاستخدام:
- *   cp server/public/api/config.sample.php server/public/api/config.local.php
- *   ثم عدّل القيم في config.local.php
+ * انسخ الملف إلى config.local.php ولا ترفعه إلى GitHub.
+ * يمكن بدل ذلك ضبط القيم كمتغيرات بيئة على الخادم.
  */
 
-// مفتاح API المستخدم للتحقق من طلبات التفعيل
-define('GPSQ_API_KEY', 'ضع-مفتاح-API-هنا');
+define('GPSQ_ADMIN_PASSWORD', 'CHANGE_WITH_A_STRONG_ADMIN_PASSWORD');
+define('GPSQ_API_KEY', 'CHANGE_WITH_A_RANDOM_64_CHAR_ADMIN_API_KEY');
+define('GPSQ_HMAC_SECRET', 'CHANGE_WITH_A_DIFFERENT_RANDOM_64_CHAR_HMAC_SECRET');
 
-// كلمة مرور لوحة الإدارة
-define('GPSQ_ADMIN_PASSWORD', 'ضع-كلمة-مرور-قوية-هنا');
-
-// (اختياري) مسار ملف قاعدة بيانات SQLite
-// define('DB_PATH', __DIR__ . '/../../../gpsq.db');
+// قاعدة البيانات خارج public لحمايتها من التنزيل المباشر.
+define('DB_PATH', dirname(__DIR__, 2) . '/data/gpsq.sqlite');
