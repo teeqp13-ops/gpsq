@@ -1,47 +1,57 @@
--- GPS Plus — مخطط قاعدة البيانات
--- يمكن تشغيل هذا الملف يدوياً بـ: sqlite3 gpsq.db < server/schema.sql
--- لاستخدام MySQL: عدّل نوع البيانات (TEXT → VARCHAR، INTEGER → INT، datetime() → NOW())
+PRAGMA foreign_keys=ON;
 
--- ================================================================
--- جدول الأكواد الرئيسي
--- ================================================================
 CREATE TABLE IF NOT EXISTS codes (
-    code         TEXT PRIMARY KEY,                 -- كود التفعيل (8+ خانات)
-    status       TEXT NOT NULL DEFAULT 'unused',   -- unused | linked | expired | closed
-    udid         TEXT,                             -- معرّف الجهاز الأول المرتبط
-    device_name  TEXT,                             -- اسم الجهاز المرتبط
-    ios_version  TEXT,                             -- إصدار iOS عند التفعيل
-    app_version  TEXT,                             -- إصدار التطبيق عند التفعيل
-    created_at   TEXT NOT NULL DEFAULT (datetime('now')),  -- تاريخ إنشاء الكود
-    activated_at TEXT                              -- تاريخ أول تفعيل
-);
-
--- ================================================================
--- جدول الأجهزة — لدعم تتبع أجهزة متعددة لكل كود مستقبلاً
--- ================================================================
-CREATE TABLE IF NOT EXISTS devices (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    code        TEXT NOT NULL,
-    udid        TEXT NOT NULL,
+    code TEXT PRIMARY KEY,
+    status TEXT NOT NULL DEFAULT 'unused',
+    udid TEXT,
     device_name TEXT,
     ios_version TEXT,
     app_version TEXT,
-    first_seen  TEXT NOT NULL DEFAULT (datetime('now')),
-    last_seen   TEXT NOT NULL DEFAULT (datetime('now')),
-    UNIQUE(code, udid)
+    duration_days INTEGER NOT NULL DEFAULT 30,
+    max_devices INTEGER NOT NULL DEFAULT 1,
+    note TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    activated_at TEXT,
+    expires_at TEXT
 );
 
--- ================================================================
--- جدول نبضات الحياة — للتتبع الدوري (heartbeat)
--- ================================================================
-CREATE TABLE IF NOT EXISTS heartbeats (
-    id   INTEGER PRIMARY KEY AUTOINCREMENT,
+CREATE TABLE IF NOT EXISTS devices (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
     code TEXT NOT NULL,
     udid TEXT NOT NULL,
-    ts   TEXT NOT NULL DEFAULT (datetime('now'))
+    device_name TEXT,
+    ios_version TEXT,
+    app_version TEXT,
+    first_seen TEXT NOT NULL DEFAULT (datetime('now')),
+    last_seen TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(code, udid),
+    FOREIGN KEY(code) REFERENCES codes(code) ON DELETE CASCADE
 );
 
--- فهارس لتحسين الأداء عند البحث
-CREATE INDEX IF NOT EXISTS idx_codes_status     ON codes (status);
-CREATE INDEX IF NOT EXISTS idx_devices_code     ON devices (code);
-CREATE INDEX IF NOT EXISTS idx_heartbeats_code  ON heartbeats (code, udid);
+CREATE TABLE IF NOT EXISTS activity_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    code TEXT,
+    udid TEXT,
+    action TEXT NOT NULL,
+    result TEXT NOT NULL,
+    message TEXT,
+    ip TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS settings (
+    name TEXT PRIMARY KEY,
+    value TEXT,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+INSERT OR IGNORE INTO settings(name,value) VALUES
+('maintenance','0'),
+('force_update','0'),
+('minimum_version','1.0'),
+('server_message','');
+
+CREATE INDEX IF NOT EXISTS idx_codes_status ON codes(status);
+CREATE INDEX IF NOT EXISTS idx_codes_expiry ON codes(expires_at);
+CREATE INDEX IF NOT EXISTS idx_devices_code ON devices(code);
+CREATE INDEX IF NOT EXISTS idx_logs_code ON activity_logs(code, created_at);

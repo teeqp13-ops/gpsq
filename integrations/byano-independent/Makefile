@@ -8,8 +8,9 @@ include $(THEOS)/makefiles/common.mk
 
 TWEAK_NAME := BYANOActivation
 BYANOActivation_FILES := GPSPlusActivation.mm
-BYANOActivation_FRAMEWORKS := UIKit Foundation
-BYANOActivation_CFLAGS := -fobjc-arc -Wall -Wextra
+BYANOActivation_FRAMEWORKS := UIKit Foundation CoreFoundation
+BYANOActivation_CFLAGS := -fobjc-arc -fblocks -Wall -Wextra -Wno-error -Wno-deprecated-declarations -Wno-unused-parameter
+BYANOActivation_LDFLAGS := -Wl,-dead_strip
 
 include $(THEOS_MAKE_PATH)/tweak.mk
 

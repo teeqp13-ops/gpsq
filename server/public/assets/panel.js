@@ -10,7 +10,9 @@ document.addEventListener('click', async (e) => {
         btn.textContent = old;
         btn.classList.remove('done');
       }, 1200);
-    } catch (_) {}
+    } catch (_) {
+      alert('تعذر النسخ تلقائياً');
+    }
   }
 
   const selected = e.target.closest('.copy-selected');
@@ -22,5 +24,14 @@ document.addEventListener('click', async (e) => {
     await navigator.clipboard.writeText(codes.join('\n'));
     selected.textContent = 'تم نسخ المحدد';
     setTimeout(() => selected.textContent = 'نسخ المحدد', 1200);
+  }
+
+  const toggle = e.target.closest('.toggle-secret');
+  if (toggle) {
+    const row = toggle.closest('tr');
+    const secret = row?.querySelector('[data-secret]');
+    if (!secret) return;
+    const isMasked = secret.classList.toggle('masked');
+    toggle.textContent = isMasked ? 'إظهار' : 'إخفاء';
   }
 });
