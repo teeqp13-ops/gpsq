@@ -1,0 +1,45 @@
+name: Build GPSQ Activation
+
+on:
+  push:
+    branches: [main, feature/gpsq-activation-system]
+    paths:
+      - 'activation/**'
+      - '.github/workflows/build-activation.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'activation/**'
+      - '.github/workflows/build-activation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: pdo_sqlite
+      - name: Lint PHP
+        run: find activation -type f -name '*.php' -print0 | xargs -0 -n1 php -l
+      - name: Prepare package
+        run: |
+          mkdir -p dist/gpsq-activation
+          cp -R activation/. dist/gpsq-activation/
+          rm -f dist/gpsq-activation/config.php
+          rm -rf dist/gpsq-activation/storage/*.sqlite dist/gpsq-activation/storage/install.lock
+          cd dist && zip -r GPSQ-Activation.zip gpsq-activation
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: GPSQ-Activation-${{ github.run_number }}
+          path: dist/GPSQ-Activation.zip
+          if-no-files-found: error
+          retention-days: 30
