@@ -1,0 +1,9 @@
+Package: com.wolfox.gpsq.activation
+Name: GPSQ Activation
+Version: 1.0.0
+Architecture: iphoneos-arm
+Description: واجهة تفعيل GPSQ حقيقية مرتبطة بخادم key.p3nd.fun
+Maintainer: WolFox
+Author: WolFox
+Section: Tweaks
+Depends: mobilesubstrate
