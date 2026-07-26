@@ -1,0 +1,88 @@
+name: Build GPSQ Objective-C++ Activation
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, feature/gpsq-activation-system]
+    paths:
+      - 'integrations/gpsq-activation/**'
+      - '.github/workflows/build-gpsq-mm.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'integrations/gpsq-activation/**'
+      - '.github/workflows/build-gpsq-mm.yml'
+
+permissions:
+  contents: read
+
+env:
+  THEOS: ${{ github.workspace }}/theos
+  CI: true
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bash curl git make perl python3 build-essential fakeroot dpkg-dev xz-utils unzip libplist-utils file rsync ca-certificates
+
+      - name: Install Theos
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          rm -rf "$THEOS"
+          INSTALLER="$(mktemp)"
+          curl --retry 3 --retry-delay 2 -fsSL https://raw.githubusercontent.com/theos/theos/master/bin/install-theos -o "$INSTALLER"
+          chmod +x "$INSTALLER"
+          yes n | bash "$INSTALLER"
+          test -f "$THEOS/makefiles/common.mk"
+          test -x "$THEOS/toolchain/linux/iphone/bin/clang"
+          test -n "$(find "$THEOS/sdks" -maxdepth 1 -type d -name '*.sdk' -print -quit)"
+
+      - name: Validate project
+        working-directory: integrations/gpsq-activation
+        run: |
+          set -Eeuo pipefail
+          test -f Makefile
+          test -f control
+          test -f GPSQActivation.plist
+          test -f Sources/GPSQActivation.mm
+          plistutil -lint GPSQActivation.plist
+          grep -q 'key.p3nd.fun/activation/api' Sources/GPSQActivation.mm
+          grep -q 'GPProjectKey = @"gpsq"' Sources/GPSQActivation.mm
+
+      - name: Build DEB and dylib
+        working-directory: integrations/gpsq-activation
+        run: |
+          set -Eeuo pipefail
+          make clean || true
+          make package FINALPACKAGE=1 2>&1 | tee build.log
+
+      - name: Collect artifacts
+        working-directory: integrations/gpsq-activation
+        run: |
+          set -Eeuo pipefail
+          mkdir -p artifacts
+          find . -type f -name '*.deb' -exec cp -v {} artifacts/ \;
+          find .theos -type f -name 'GPSQActivation.dylib' -exec cp -v {} artifacts/ \;
+          cp build.log artifacts/
+          test -n "$(find artifacts -maxdepth 1 -type f -name '*.deb' -print -quit)"
+          test -n "$(find artifacts -maxdepth 1 -type f -name 'GPSQActivation.dylib' -print -quit)"
+          sha256sum artifacts/*.deb artifacts/GPSQActivation.dylib > artifacts/SHA256SUMS.txt
+          ls -lah artifacts
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: GPSQ-Activation-MM-${{ github.run_number }}
+          path: integrations/gpsq-activation/artifacts/**
+          if-no-files-found: error
+          retention-days: 30
