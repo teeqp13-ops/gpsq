@@ -11,7 +11,9 @@ static NSString *const WFThemeModeKey = @"WFThemeMode";
     dispatch_once(&onceToken, ^{
         manager = [WFThemeManager new];
         NSInteger saved = [[NSUserDefaults standardUserDefaults] integerForKey:WFThemeModeKey];
-        manager->_mode = (saved >= WFThemeModeSystem && saved <= WFThemeModeDark) ? saved : WFThemeModeSystem;
+        manager->_mode = (saved >= WFThemeModeSystem && saved <= WFThemeModeDark)
+            ? (WFThemeMode)saved
+            : WFThemeModeSystem;
     });
     return manager;
 }
