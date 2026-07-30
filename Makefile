@@ -31,7 +31,7 @@ gpsq_FILES := \
 	FakeGPS.mm \
 	SharedBridge.xm \
 	FeaturePack.xm \
-	Sources/WFModernUI.xm \
+	Sources/WFModernPanel.xm \
 	Sources/WFThemeManager.mm \
 	Sources/WFLocalization.mm \
 	Sources/WFFavoritesStore.mm \
