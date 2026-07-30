@@ -33,13 +33,13 @@
         return;
     }
 
-    BOOL isTrackPoint = [elementName isEqualToString:@"trkpt"] && [self.trackSegments containsObject:self.currentSequence];
-    BOOL isRoutePoint = [elementName isEqualToString:@"rtept"] && [self.routes containsObject:self.currentSequence];
-    if (!isTrackPoint && !isRoutePoint) return;
+    BOOL isTrackPoint = self.currentSequence && [elementName isEqualToString:@"trkpt"] && [self.trackSegments containsObject:self.currentSequence];
+    BOOL isRoutePoint = self.currentSequence && [elementName isEqualToString:@"rtept"] && [self.routes containsObject:self.currentSequence];
+    NSString *latitudeValue = attributeDict[@"lat"];
+    NSString *longitudeValue = attributeDict[@"lon"];
+    if ((!isTrackPoint && !isRoutePoint) || !latitudeValue.length || !longitudeValue.length) return;
 
-    NSNumber *latitude = @([attributeDict[@"lat"] doubleValue]);
-    NSNumber *longitude = @([attributeDict[@"lon"] doubleValue]);
-    CLLocationCoordinate2D coordinate = CLLocationCoordinate2DMake(latitude.doubleValue, longitude.doubleValue);
+    CLLocationCoordinate2D coordinate = CLLocationCoordinate2DMake(latitudeValue.doubleValue, longitudeValue.doubleValue);
     if (CLLocationCoordinate2DIsValid(coordinate)) {
         [self.currentSequence addObject:[NSValue value:&coordinate withObjCType:@encode(CLLocationCoordinate2D)]];
     }
@@ -55,10 +55,14 @@
 }
 
 - (NSArray<NSValue *> *)bestPoints {
-    NSArray<NSArray<NSValue *> *> *groups = self.trackSegments.count ? self.trackSegments : self.routes;
     NSArray<NSValue *> *best = @[];
-    for (NSArray<NSValue *> *group in groups) {
-        if (group.count > best.count) best = group;
+    for (NSArray<NSValue *> *segment in self.trackSegments) {
+        if (segment.count > best.count) best = segment;
+    }
+    if (best.count >= 2) return best;
+
+    for (NSArray<NSValue *> *route in self.routes) {
+        if (route.count > best.count) best = route;
     }
     return best;
 }
