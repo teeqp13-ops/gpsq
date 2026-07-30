@@ -3,13 +3,14 @@ name: Build GPSQ Main With Activation UI
 on:
   workflow_dispatch:
   push:
-    branches: [main, feature/gpsq-activation-system]
+    branches: [main, feature/gpsq-activation-system, feature/wolfgps-v16-ui]
     paths:
       - 'Makefile'
       - 'FakeGPS.mm'
       - 'SharedBridge.xm'
       - 'FeaturePack.xm'
       - 'LocationSpoof.xm'
+      - 'Sources/**'
       - 'gpsq.plist'
       - 'FakeGPSLocation.plist'
       - 'integrations/gpsq-activation/Sources/GPSQActivation.mm'
@@ -22,6 +23,7 @@ on:
       - 'SharedBridge.xm'
       - 'FeaturePack.xm'
       - 'LocationSpoof.xm'
+      - 'Sources/**'
       - 'gpsq.plist'
       - 'FakeGPSLocation.plist'
       - 'integrations/gpsq-activation/Sources/GPSQActivation.mm'
@@ -46,7 +48,14 @@ jobs:
         run: |
           set -Eeuo pipefail
           test -f Makefile
+          test -f Sources/WFModernPanel.xm
+          test -f Sources/WFThemeManager.mm
+          test -f Sources/WFLocalization.mm
+          test -f Sources/WFFavoritesStore.mm
+          test -f Sources/WFFavoritesViewController.mm
+          test -f Sources/WFGPXMovementManager.mm
           test -f integrations/gpsq-activation/Sources/GPSQActivation.mm
+          grep -q 'Sources/WFModernPanel.xm' Makefile
           grep -q 'integrations/gpsq-activation/Sources/GPSQActivation.mm' Makefile
           grep -q 'Security' Makefile
           grep -q 'key.p3nd.fun/activation/api' integrations/gpsq-activation/Sources/GPSQActivation.mm
