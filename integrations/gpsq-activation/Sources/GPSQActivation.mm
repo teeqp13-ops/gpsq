@@ -185,13 +185,13 @@ static __weak GPSQActivationViewController *GPCurrentController;
 
     self.codeField = [UITextField new];
     self.codeField.delegate = self;
-    self.codeField.placeholder = @"XXXXXXXX";
+    self.codeField.placeholder = @"8 إلى 20 رقمًا";
     self.codeField.textAlignment = NSTextAlignmentCenter;
     self.codeField.textColor = UIColor.whiteColor;
     self.codeField.font = [UIFont monospacedSystemFontOfSize:20 weight:UIFontWeightBold];
     self.codeField.autocapitalizationType = UITextAutocapitalizationTypeAllCharacters;
     self.codeField.autocorrectionType = UITextAutocorrectionTypeNo;
-    self.codeField.keyboardType = UIKeyboardTypeASCIICapable;
+    self.codeField.keyboardType = UIKeyboardTypeNumberPad;
     self.codeField.backgroundColor = GPColor(0x070B18);
     self.codeField.layer.cornerRadius = 12;
     self.codeField.layer.borderWidth = 1;
@@ -344,8 +344,8 @@ static __weak GPSQActivationViewController *GPCurrentController;
 
 - (void)activateTapped {
     NSString *code = [[self.codeField.text ?: @"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet] uppercaseString];
-    if (code.length != 8) {
-        self.statusLabel.text = @"أدخل كودًا صحيحًا من 8 خانات";
+    if (code.length < 8 || code.length > 20) {
+        self.statusLabel.text = @"أدخل كودًا من 8 إلى 20 رقمًا";
         self.statusLabel.textColor = GPColor(0xFF5D6C);
         return;
     }
@@ -487,8 +487,8 @@ static __weak GPSQActivationViewController *GPCurrentController;
 
 - (BOOL)textField:(UITextField *)textField shouldChangeCharactersInRange:(NSRange)range replacementString:(NSString *)string {
     NSString *next = [textField.text stringByReplacingCharactersInRange:range withString:string];
-    NSCharacterSet *invalid = [[NSCharacterSet alphanumericCharacterSet] invertedSet];
-    return next.length <= 8 && [string rangeOfCharacterFromSet:invalid].location == NSNotFound;
+    NSCharacterSet *invalid = [[NSCharacterSet decimalDigitCharacterSet] invertedSet];
+    return next.length <= 20 && [string rangeOfCharacterFromSet:invalid].location == NSNotFound;
 }
 
 - (void)searchTapped {
