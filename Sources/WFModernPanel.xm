@@ -116,6 +116,7 @@ static UIViewController *WFPanelTopController(UIWindow *window) {
         [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(volumeChanged:) name:@"AVSystemController_SystemVolumeDidChangeNotification" object:nil];
         [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(rebuildPanel) name:WFThemeDidChangeNotification object:nil];
         [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(rebuildPanel) name:WFLanguageDidChangeNotification object:nil];
+        [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(openPanel) name:@"GPSQOpenModernPanel" object:nil];
         [self attachWhenReady];
     });
 }
