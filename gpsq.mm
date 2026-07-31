@@ -279,8 +279,13 @@ static NSString *GPSQDateText(NSDate *date) {
     title.textAlignment = NSTextAlignmentCenter;
     title.font = [UIFont boldSystemFontOfSize:24];
     [self.fullOverlay addSubview:title];
-    UIButton *close = GPSQButton(@"إغلاق", GPSQColor(37, 99, 235));
-    close.frame = CGRectMake(self.view.bounds.size.width - 96, 46, 78, 42);
+    UIButton *close = [UIButton buttonWithType:UIButtonTypeSystem];
+    close.frame = CGRectMake(self.view.bounds.size.width - 54, 46, 40, 40);
+    close.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.15];
+    close.layer.cornerRadius = 20;
+    [close setTitle:@"✕" forState:UIControlStateNormal];
+    [close setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
+    close.titleLabel.font = [UIFont systemFontOfSize:22 weight:UIFontWeightBold];
     [close addTarget:self action:@selector(closeFullOverlay) forControlEvents:UIControlEventTouchUpInside];
     [self.fullOverlay addSubview:close];
     UIButton *info = GPSQButton(@"الاشتراك", GPSQColor(71, 85, 105));
@@ -304,15 +309,20 @@ static NSString *GPSQDateText(NSDate *date) {
     CGFloat y = self.view.bounds.size.height - 160;
     CGFloat w = (self.view.bounds.size.width - 52) / 2.0;
     UIButton *current = GPSQButton(@"📍 موقعي الحالي", GPSQColor(22, 163, 74));
-    current.frame = CGRectMake(18, y, w, 46);
+    current.frame = CGRectMake(18, y - 10, w, 54);
+    current.titleLabel.font = [UIFont boldSystemFontOfSize:17.0];
     [current addTarget:self action:@selector(goCurrentLocation) forControlEvents:UIControlEventTouchUpInside];
     [self.fullOverlay addSubview:current];
+    
     UIButton *save = GPSQButton(@"حفظ الموقع", GPSQColor(37, 99, 235));
-    save.frame = CGRectMake(34 + w, y, w, 46);
+    save.frame = CGRectMake(34 + w, y - 10, w, 54);
+    save.titleLabel.font = [UIFont boldSystemFontOfSize:17.0];
     [save addTarget:self action:@selector(saveCurrentMapLocation) forControlEvents:UIControlEventTouchUpInside];
     [self.fullOverlay addSubview:save];
+    
     UIButton *saved = GPSQButton(@"المواقع المحفوظة", GPSQColor(124, 58, 237));
-    saved.frame = CGRectMake(18, y + 58, self.view.bounds.size.width - 36, 46);
+    saved.frame = CGRectMake(18, y + 54, self.view.bounds.size.width - 36, 54);
+    saved.titleLabel.font = [UIFont boldSystemFontOfSize:17.0];
     [saved addTarget:self action:@selector(showSavedLocations) forControlEvents:UIControlEventTouchUpInside];
     [self.fullOverlay addSubview:saved];
 }
@@ -396,9 +406,23 @@ static void GPSQShowWindow(void) {
     });
 }
 
+static void GPSQVolumeChanged(NSNotification *notification) {
+    static NSInteger volumeCount = 0;
+    static NSTimeInterval lastTime = 0;
+    NSTimeInterval now = NSDate.date.timeIntervalSince1970;
+    if (now - lastTime > 1.5) volumeCount = 0;
+    lastTime = now;
+    volumeCount++;
+    if (volumeCount >= 3) {
+        volumeCount = 0;
+        GPSQShowWindow();
+    }
+}
+
 __attribute__((constructor)) static void GPSQInit(void) {
     dispatch_async(dispatch_get_main_queue(), ^{
         [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidBecomeActiveNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(__unused NSNotification *note) { GPSQShowWindow(); }];
+        [[NSNotificationCenter defaultCenter] addObserverForName:@"AVSystemController_SystemVolumeDidChangeNotification" object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) { GPSQVolumeChanged(note); }];
         GPSQShowWindow();
     });
 }

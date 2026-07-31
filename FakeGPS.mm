@@ -19,7 +19,7 @@ static UIImage *FGSymbol(NSString *name) {
     return nil;
 }
 
-@interface FGManager : NSObject <UISearchBarDelegate, MKMapViewDelegate>
+@interface FGManager : NSObject <UISearchBarDelegate, MKMapViewDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate>
 @property(nonatomic,strong) UIButton *floatingButton;
 @property(nonatomic,strong) UIView *menuView;
 @property(nonatomic,strong) MKMapView *mapView;
@@ -241,43 +241,51 @@ static UIImage *FGSymbol(NSString *name) {
     CGFloat gap = 8;
     CGFloat width = (panel.bounds.size.width - 36) / 2.0;
 
+    CGFloat btnH = 60;
+    CGFloat btnGap = 68;
     UIButton *toggle = [self cardButton:@"تفعيل تغيير الموقع"
                                  symbol:@"location.fill"
-                                  frame:CGRectMake(14, rowY, width, 50)
+                                  frame:CGRectMake(14, rowY, width, btnH)
                                  action:@selector(toggleGPS:)];
+    toggle.titleLabel.font = [UIFont systemFontOfSize:16 weight:UIFontWeightBold];
     self.gpsToggleButton = toggle;
     [panel addSubview:toggle];
 
     UIButton *hide = [self cardButton:@"إخفاء زر الأداة"
                                symbol:@"eye.slash.fill"
-                                frame:CGRectMake(22 + width, rowY, width, 50)
+                                frame:CGRectMake(22 + width, rowY, width, btnH)
                                action:@selector(hideFloating)];
+    hide.titleLabel.font = [UIFont systemFontOfSize:16 weight:UIFontWeightBold];
     [panel addSubview:hide];
 
-    rowY += 58;
+    rowY += btnGap;
     UIButton *upload = [self cardButton:@"تفعيل رفع الصور"
                                  symbol:@"photo.on.rectangle"
-                                  frame:CGRectMake(14, rowY, width, 50)
+                                  frame:CGRectMake(14, rowY, width, btnH)
                                  action:@selector(toggleUpload:)];
+    upload.titleLabel.font = [UIFont systemFontOfSize:16 weight:UIFontWeightBold];
     [panel addSubview:upload];
 
     UIButton *device = [self cardButton:@"تغيير معرف الجهاز"
                                  symbol:@"iphone"
-                                  frame:CGRectMake(22 + width, rowY, width, 50)
+                                  frame:CGRectMake(22 + width, rowY, width, btnH)
                                  action:@selector(showDeviceIdentifier)];
+    device.titleLabel.font = [UIFont systemFontOfSize:16 weight:UIFontWeightBold];
     [panel addSubview:device];
 
-    rowY += 58;
+    rowY += btnGap;
     UIButton *bluetooth = [self cardButton:@"Bluetooth و Beacons"
                                     symbol:@"wave.3.right"
-                                     frame:CGRectMake(14, rowY, width, 50)
+                                     frame:CGRectMake(14, rowY, width, btnH)
                                     action:@selector(toggleBluetooth:)];
+    bluetooth.titleLabel.font = [UIFont systemFontOfSize:16 weight:UIFontWeightBold];
     [panel addSubview:bluetooth];
 
     UIButton *favorites = [self cardButton:@"المفضلة"
                                     symbol:@"star"
-                                     frame:CGRectMake(22 + width, rowY, width, 50)
+                                     frame:CGRectMake(22 + width, rowY, width, btnH)
                                     action:@selector(showFavorites)];
+    favorites.titleLabel.font = [UIFont systemFontOfSize:16 weight:UIFontWeightBold];
     [panel addSubview:favorites];
 
     [self refreshMenuState];
@@ -336,6 +344,24 @@ static UIImage *FGSymbol(NSString *name) {
     [FGDefaults() setBool:enabled forKey:FGUploadEnabled];
     [FGDefaults() synchronize];
     [sender setTitle:(enabled ? @"إيقاف رفع الصور" : @"تفعيل رفع الصور") forState:UIControlStateNormal];
+    
+    if (enabled) {
+        UIImagePickerController *picker = [[UIImagePickerController alloc] init];
+        picker.sourceType = UIImagePickerControllerSourceTypePhotoLibrary;
+        picker.delegate = self;
+        UIViewController *top = [self bestWindow].rootViewController;
+        while (top.presentedViewController) top = top.presentedViewController;
+        [top presentViewController:picker animated:YES completion:nil];
+    }
+}
+
+- (void)imagePickerController:(UIImagePickerController *)picker didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *)info {
+    [picker dismissViewControllerAnimated:YES completion:nil];
+    [self showMessage:@"تم اختيار الصورة بنجاح لرفعها"];
+}
+
+- (void)imagePickerControllerDidCancel:(UIImagePickerController *)picker {
+    [picker dismissViewControllerAnimated:YES completion:nil];
 }
 
 - (void)toggleBluetooth:(UIButton *)sender {
