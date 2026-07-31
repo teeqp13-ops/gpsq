@@ -12,6 +12,8 @@ static NSString *const GPCodeAccount = @"license_code";
 static NSString *const GPDeviceDefaultsKey = @"GPSQDeviceIdentifier";
 static NSString *const GPActivationCompletedNotification = @"GPSQActivationCompleted";
 static NSString *const GPChooseLocationNotification = @"GPSQChooseLocation";
+static NSString *const GPShowActivationNotification = @"GPSQShowActivation";
+static NSString *const GPOpenModernPanelNotification = @"GPSQOpenModernPanel";
 
 static UIColor *GPColor(NSUInteger hex) {
     return [UIColor colorWithRed:((hex >> 16) & 0xFF) / 255.0
@@ -167,7 +169,7 @@ static __weak GPSQActivationViewController *GPCurrentController;
     ]];
 
     UILabel *title = [self labelWithText:@"التفعيل مطلوب" size:19 weight:UIFontWeightHeavy color:UIColor.whiteColor];
-    UILabel *subtitle = [self labelWithText:@"أدخل كود التفعيل للوصول إلى مميزات GPSQ" size:13 weight:UIFontWeightRegular color:GPColor(0x6B7488)];
+    UILabel *subtitle = [self labelWithText:@"أدخل كود التفعيل للوصول إلى مميزات Wolf GPS V17" size:13 weight:UIFontWeightRegular color:GPColor(0x6B7488)];
 
     UIView *card = [UIView new];
     card.backgroundColor = GPColor(0x0E142B);
@@ -239,7 +241,7 @@ static __weak GPSQActivationViewController *GPCurrentController;
     ]];
     self.featuresView = container;
 
-    UILabel *header = [self labelWithText:@"GPSQ — Fake GPS" size:17 weight:UIFontWeightHeavy color:UIColor.whiteColor];
+    UILabel *header = [self labelWithText:@"Wolf GPS V17" size:17 weight:UIFontWeightHeavy color:UIColor.whiteColor];
     header.translatesAutoresizingMaskIntoConstraints = NO;
 
     self.mapView = [MKMapView new];
@@ -370,10 +372,25 @@ static __weak GPSQActivationViewController *GPCurrentController;
             }
             GPKeychainSave(GPTokenAccount, token);
             GPKeychainSave(GPCodeAccount, code);
-            self.statusLabel.text = @"تم التفعيل بنجاح";
+            NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+            [defaults setObject:code forKey:@"FGLicenseCode"];
+            [defaults setObject:token forKey:@"FGLicenseToken"];
+            [defaults setBool:YES forKey:@"FGLicenseActive"];
+            [defaults synchronize];
+
+            self.statusLabel.text = @"تم التفعيل";
             self.statusLabel.textColor = GPColor(0x3FD68A);
             [NSNotificationCenter.defaultCenter postNotificationName:GPActivationCompletedNotification object:nil userInfo:json];
-            [self showFeaturesAnimated:YES];
+
+            UIAlertController *successAlert = [UIAlertController alertControllerWithTitle:@"تم التفعيل"
+                                                                                  message:@"تم قبول الكود وربط الجهاز بنجاح."
+                                                                           preferredStyle:UIAlertControllerStyleAlert];
+            [successAlert addAction:[UIAlertAction actionWithTitle:@"دخول" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
+                [self dismissViewControllerAnimated:YES completion:^{
+                    [NSNotificationCenter.defaultCenter postNotificationName:GPOpenModernPanelNotification object:nil];
+                }];
+            }]];
+            [self presentViewController:successAlert animated:YES completion:nil];
         });
     }];
 }
@@ -395,9 +412,21 @@ static __weak GPSQActivationViewController *GPCurrentController;
         dispatch_async(dispatch_get_main_queue(), ^{
             [self setBusy:NO text:@""];
             if (valid) {
-                [self showFeaturesAnimated:YES];
+                NSString *savedCode = GPKeychainRead(GPCodeAccount);
+                NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+                if (savedCode.length) [defaults setObject:savedCode forKey:@"FGLicenseCode"];
+                [defaults setObject:token forKey:@"FGLicenseToken"];
+                [defaults setBool:YES forKey:@"FGLicenseActive"];
+                [defaults synchronize];
+                [self dismissViewControllerAnimated:NO completion:nil];
             } else {
                 GPKeychainDelete(GPTokenAccount);
+                GPKeychainDelete(GPCodeAccount);
+                NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+                [defaults removeObjectForKey:@"FGLicenseCode"];
+                [defaults removeObjectForKey:@"FGLicenseToken"];
+                [defaults setBool:NO forKey:@"FGLicenseActive"];
+                [defaults synchronize];
                 [self showActivationAnimated:YES];
                 self.statusLabel.text = [self messageForResponse:json error:error];
                 self.statusLabel.textColor = GPColor(0xFF5D6C);
@@ -519,6 +548,9 @@ __attribute__((constructor)) static void GPSQActivationInitialize(void) {
         });
         [NSNotificationCenter.defaultCenter addObserverForName:UIApplicationDidBecomeActiveNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(__unused NSNotification *note) {
             if (!GPCurrentController.presentingViewController) GPPresentInterface();
+        }];
+        [NSNotificationCenter.defaultCenter addObserverForName:GPShowActivationNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(__unused NSNotification *note) {
+            GPPresentInterface();
         }];
     }
 }
