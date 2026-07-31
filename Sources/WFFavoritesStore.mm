@@ -2,6 +2,7 @@
 
 static NSString *const WFFavoritesArchiveKey = @"WFFavoritesArchiveV2";
 static NSString *const WFLegacyFavoritesKey = @"FGFavorites";
+static NSString *const WFFavoritesMigrationKey = @"WFFavoritesMigrationV2Completed";
 
 @implementation WFFavoriteItem
 
@@ -63,14 +64,21 @@ static NSString *const WFLegacyFavoritesKey = @"FGFavorites";
 }
 
 - (void)load {
-    NSData *data = [[NSUserDefaults standardUserDefaults] dataForKey:WFFavoritesArchiveKey];
+    NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+    NSData *data = [defaults dataForKey:WFFavoritesArchiveKey];
+    BOOL loadedArchive = NO;
     if (data.length) {
         NSSet *classes = [NSSet setWithObjects:NSArray.class, NSMutableArray.class, WFFavoriteItem.class, NSString.class, NSDate.class, nil];
         NSError *error = nil;
         NSArray *decoded = [NSKeyedUnarchiver unarchivedObjectOfClasses:classes fromData:data error:&error];
-        if (!error && [decoded isKindOfClass:NSArray.class]) [self.items addObjectsFromArray:decoded];
+        if (!error && [decoded isKindOfClass:NSArray.class]) {
+            [self.items addObjectsFromArray:decoded];
+            loadedArchive = YES;
+        }
     }
-    if (self.items.count == 0) [self migrateLegacyItems];
+    if (!loadedArchive && ![defaults boolForKey:WFFavoritesMigrationKey]) {
+        [self migrateLegacyItems];
+    }
 }
 
 - (void)migrateLegacyItems {
@@ -95,7 +103,11 @@ static NSString *const WFLegacyFavoritesKey = @"FGFavorites";
             [self.items addObject:item];
         }
     }
-    if (self.items.count) [self save];
+    [self save];
+    NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+    [defaults setBool:YES forKey:WFFavoritesMigrationKey];
+    [defaults removeObjectForKey:WFLegacyFavoritesKey];
+    [defaults synchronize];
 }
 
 - (void)save {

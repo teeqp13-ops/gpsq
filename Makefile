@@ -39,7 +39,7 @@ gpsq_FILES := \
 	Sources/WFGPXMovementManager.mm \
 	integrations/gpsq-activation/Sources/GPSQActivation.mm
 
-gpsq_FRAMEWORKS := UIKit Foundation QuartzCore MapKit CoreLocation AVFoundation Security
+gpsq_FRAMEWORKS := UIKit Foundation QuartzCore MapKit CoreLocation AVFoundation Security CoreBluetooth
 gpsq_CFLAGS := -fobjc-arc -fblocks -ISources -Wall -Wextra -Wno-error -Wno-deprecated-declarations -Wno-unused-function -Wno-unused-variable -Wno-unused-parameter
 gpsq_LDFLAGS := -Wl,-dead_strip
 

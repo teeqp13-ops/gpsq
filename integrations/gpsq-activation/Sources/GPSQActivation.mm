@@ -4,7 +4,7 @@
 #import <MapKit/MapKit.h>
 #import <CoreLocation/CoreLocation.h>
 
-static NSString *const GPAPIBase = @"https://key.p3nd.fun/activation/api";
+static NSString *const GPAPIBase = @"https://mm.p3nd.fun/api";
 static NSString *const GPProjectKey = @"gpsq";
 static NSString *const GPKeychainService = @"com.wolfox.gpsq.activation";
 static NSString *const GPTokenAccount = @"session_token";
@@ -18,6 +18,19 @@ static UIColor *GPColor(NSUInteger hex) {
                            green:((hex >> 8) & 0xFF) / 255.0
                             blue:(hex & 0xFF) / 255.0
                            alpha:1.0];
+}
+
+static NSString *GPNormalizeActivationCode(NSString *value) {
+    NSString *source = value ?: @"";
+    NSMutableString *normalized = [NSMutableString string];
+    for (NSUInteger index = 0; index < source.length && normalized.length < 20; index++) {
+        unichar character = [source characterAtIndex:index];
+        BOOL isNumber = character >= '0' && character <= '9';
+        if (isNumber) {
+            [normalized appendFormat:@"%C", character];
+        }
+    }
+    return normalized;
 }
 
 static NSString *GPDeviceIdentifier(void) {
@@ -104,9 +117,27 @@ static __weak GPSQActivationViewController *GPCurrentController;
     [super viewDidLoad];
     self.view.backgroundColor = GPColor(0x070B18);
     self.modalPresentationStyle = UIModalPresentationFullScreen;
+
+    UITapGestureRecognizer *dismissTap = [[UITapGestureRecognizer alloc] initWithTarget:self
+                                                                                 action:@selector(dismissKeyboard)];
+    dismissTap.cancelsTouchesInView = NO;
+    [self.view addGestureRecognizer:dismissTap];
+
+    [NSNotificationCenter.defaultCenter addObserver:self
+                                           selector:@selector(keyboardWillChangeFrame:)
+                                               name:UIKeyboardWillChangeFrameNotification
+                                             object:nil];
+    [NSNotificationCenter.defaultCenter addObserver:self
+                                           selector:@selector(keyboardWillHide:)
+                                               name:UIKeyboardWillHideNotification
+                                             object:nil];
+
     [self buildActivationInterface];
-    [self buildFeaturesInterface];
     [self showActivationAnimated:NO];
+}
+
+- (void)dealloc {
+    [NSNotificationCenter.defaultCenter removeObserver:self];
 }
 
 - (void)viewDidAppear:(BOOL)animated {
@@ -152,6 +183,41 @@ static __weak GPSQActivationViewController *GPCurrentController;
     ]];
     self.activationView = container;
 
+    UIView *topbar = [UIView new];
+    topbar.backgroundColor = [GPColor(0x0E142B) colorWithAlphaComponent:0.92];
+    topbar.layer.cornerRadius = 16;
+    topbar.layer.borderWidth = 1;
+    topbar.layer.borderColor = [UIColor.whiteColor colorWithAlphaComponent:0.07].CGColor;
+    topbar.translatesAutoresizingMaskIntoConstraints = NO;
+    [container addSubview:topbar];
+
+    UILabel *toolName = [self labelWithText:@"Fake GPS" size:16 weight:UIFontWeightHeavy color:GPColor(0xE8C453)];
+    toolName.translatesAutoresizingMaskIntoConstraints = NO;
+    [topbar addSubview:toolName];
+
+    UIButton *closeButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    [closeButton setTitle:@"✕" forState:UIControlStateNormal];
+    [closeButton setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
+    closeButton.titleLabel.font = [UIFont systemFontOfSize:18 weight:UIFontWeightBold];
+    closeButton.backgroundColor = [UIColor.whiteColor colorWithAlphaComponent:0.08];
+    closeButton.layer.cornerRadius = 16;
+    closeButton.translatesAutoresizingMaskIntoConstraints = NO;
+    [closeButton addTarget:self action:@selector(closeTapped) forControlEvents:UIControlEventTouchUpInside];
+    [topbar addSubview:closeButton];
+
+    [NSLayoutConstraint activateConstraints:@[
+        [topbar.topAnchor constraintEqualToAnchor:container.topAnchor constant:10],
+        [topbar.leadingAnchor constraintEqualToAnchor:container.leadingAnchor],
+        [topbar.trailingAnchor constraintEqualToAnchor:container.trailingAnchor],
+        [topbar.heightAnchor constraintEqualToConstant:52],
+        [toolName.centerXAnchor constraintEqualToAnchor:topbar.centerXAnchor],
+        [toolName.centerYAnchor constraintEqualToAnchor:topbar.centerYAnchor],
+        [closeButton.leadingAnchor constraintEqualToAnchor:topbar.leadingAnchor constant:10],
+        [closeButton.centerYAnchor constraintEqualToAnchor:topbar.centerYAnchor],
+        [closeButton.widthAnchor constraintEqualToConstant:32],
+        [closeButton.heightAnchor constraintEqualToConstant:32]
+    ]];
+
     UIView *lock = [UIView new];
     lock.backgroundColor = [GPColor(0xC9A227) colorWithAlphaComponent:0.12];
     lock.layer.borderColor = [GPColor(0xE8C453) colorWithAlphaComponent:0.35].CGColor;
@@ -167,7 +233,7 @@ static __weak GPSQActivationViewController *GPCurrentController;
     ]];
 
     UILabel *title = [self labelWithText:@"التفعيل مطلوب" size:19 weight:UIFontWeightHeavy color:UIColor.whiteColor];
-    UILabel *subtitle = [self labelWithText:@"أدخل كود التفعيل للوصول إلى مميزات GPSQ" size:13 weight:UIFontWeightRegular color:GPColor(0x6B7488)];
+    UILabel *subtitle = [self labelWithText:@"أدخل كود التفعيل للوصول إلى المميزات" size:13 weight:UIFontWeightRegular color:GPColor(0x6B7488)];
 
     UIView *card = [UIView new];
     card.backgroundColor = GPColor(0x0E142B);
@@ -182,23 +248,59 @@ static __weak GPSQActivationViewController *GPCurrentController;
 
     self.codeField = [UITextField new];
     self.codeField.delegate = self;
-    self.codeField.placeholder = @"XXXXXXXX";
+    self.codeField.placeholder = @"أدخل الترخيص XXXXXXX";
     self.codeField.textAlignment = NSTextAlignmentCenter;
     self.codeField.textColor = UIColor.whiteColor;
     self.codeField.font = [UIFont monospacedSystemFontOfSize:20 weight:UIFontWeightBold];
+    self.codeField.adjustsFontSizeToFitWidth = YES;
+    self.codeField.minimumFontSize = 15;
     self.codeField.autocapitalizationType = UITextAutocapitalizationTypeAllCharacters;
     self.codeField.autocorrectionType = UITextAutocorrectionTypeNo;
-    self.codeField.keyboardType = UIKeyboardTypeASCIICapable;
+    self.codeField.keyboardType = UIKeyboardTypeNumberPad;
+    self.codeField.returnKeyType = UIReturnKeyGo;
+    self.codeField.enablesReturnKeyAutomatically = YES;
+    self.codeField.clearButtonMode = UITextFieldViewModeWhileEditing;
+    self.codeField.textContentType = UITextContentTypeOneTimeCode;
     self.codeField.backgroundColor = GPColor(0x070B18);
     self.codeField.layer.cornerRadius = 12;
     self.codeField.layer.borderWidth = 1;
     self.codeField.layer.borderColor = [UIColor.whiteColor colorWithAlphaComponent:0.09].CGColor;
     self.codeField.translatesAutoresizingMaskIntoConstraints = NO;
 
+    UIToolbar *keyboardToolbar = [[UIToolbar alloc] initWithFrame:CGRectMake(0, 0, UIScreen.mainScreen.bounds.size.width, 44)];
+    keyboardToolbar.barTintColor = GPColor(0x0E142B);
+    keyboardToolbar.translucent = NO;
+    UIBarButtonItem *dismissKeyboardItem = [[UIBarButtonItem alloc] initWithTitle:@"⌄ طي الكيبورد"
+                                                                            style:UIBarButtonItemStylePlain
+                                                                           target:self
+                                                                           action:@selector(dismissKeyboard)];
+    dismissKeyboardItem.tintColor = GPColor(0x8C95A8);
+    UIBarButtonItem *flexibleSpace = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemFlexibleSpace
+                                                                                  target:nil
+                                                                                  action:nil];
+    UIBarButtonItem *pasteItem = [[UIBarButtonItem alloc] initWithTitle:@"لصق"
+                                                                  style:UIBarButtonItemStylePlain
+                                                                 target:self
+                                                                 action:@selector(pasteActivationCode)];
+    pasteItem.tintColor = GPColor(0xE8C453);
+    UIBarButtonItem *activateItem = [[UIBarButtonItem alloc] initWithTitle:@"تفعيل"
+                                                                     style:UIBarButtonItemStyleDone
+                                                                    target:self
+                                                                    action:@selector(activateTapped)];
+    activateItem.tintColor = GPColor(0xC9A227);
+    keyboardToolbar.items = @[dismissKeyboardItem, flexibleSpace, pasteItem, activateItem];
+    self.codeField.inputAccessoryView = keyboardToolbar;
+
     self.activateButton = [self buttonWithTitle:@"تفعيل" color:GPColor(0xC9A227) action:@selector(activateTapped)];
     [self.activateButton setTitleColor:GPColor(0x070B18) forState:UIControlStateNormal];
 
-    UIStackView *cardStack = [[UIStackView alloc] initWithArrangedSubviews:@[fieldTitle, self.codeField, self.activateButton]];
+    UIButton *pasteButton = [self buttonWithTitle:@"لصق الكود" color:GPColor(0x202943) action:@selector(pasteActivationCode)];
+    UIStackView *actions = [[UIStackView alloc] initWithArrangedSubviews:@[pasteButton, self.activateButton]];
+    actions.axis = UILayoutConstraintAxisHorizontal;
+    actions.distribution = UIStackViewDistributionFillEqually;
+    actions.spacing = 10;
+
+    UIStackView *cardStack = [[UIStackView alloc] initWithArrangedSubviews:@[fieldTitle, self.codeField, actions]];
     cardStack.axis = UILayoutConstraintAxisVertical;
     cardStack.spacing = 12;
     cardStack.translatesAutoresizingMaskIntoConstraints = NO;
@@ -215,16 +317,68 @@ static __weak GPSQActivationViewController *GPCurrentController;
 
     UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[lock, title, subtitle, card, self.statusLabel]];
     stack.axis = UILayoutConstraintAxisVertical;
-    stack.alignment = UIStackViewAlignmentFill;
+    stack.alignment = UIStackViewAlignmentCenter;
     stack.spacing = 14;
     stack.translatesAutoresizingMaskIntoConstraints = NO;
     [container addSubview:stack];
     [NSLayoutConstraint activateConstraints:@[
         [stack.leadingAnchor constraintEqualToAnchor:container.leadingAnchor],
         [stack.trailingAnchor constraintEqualToAnchor:container.trailingAnchor],
-        [stack.centerYAnchor constraintEqualToAnchor:container.centerYAnchor constant:-20]
+        [stack.topAnchor constraintGreaterThanOrEqualToAnchor:topbar.bottomAnchor constant:24],
+        [stack.centerYAnchor constraintEqualToAnchor:container.centerYAnchor constant:-10],
+        [title.widthAnchor constraintEqualToAnchor:stack.widthAnchor],
+        [subtitle.widthAnchor constraintEqualToAnchor:stack.widthAnchor],
+        [card.widthAnchor constraintEqualToAnchor:stack.widthAnchor],
+        [self.statusLabel.widthAnchor constraintEqualToAnchor:stack.widthAnchor]
     ]];
-    [lock.centerXAnchor constraintEqualToAnchor:stack.centerXAnchor].active = YES;
+}
+
+- (void)dismissKeyboard {
+    [self.view endEditing:YES];
+}
+
+- (void)keyboardWillChangeFrame:(NSNotification *)notification {
+    NSDictionary *info = notification.userInfo;
+    CGRect screenFrame = [info[UIKeyboardFrameEndUserInfoKey] CGRectValue];
+    CGRect keyboardFrame = [self.view convertRect:screenFrame fromView:nil];
+    CGRect fieldFrame = [self.codeField convertRect:self.codeField.bounds toView:self.view];
+    CGFloat overlap = MAX(0.0, CGRectGetMaxY(fieldFrame) + 24.0 - CGRectGetMinY(keyboardFrame));
+    CGFloat shift = MIN(overlap, 180.0);
+    NSTimeInterval duration = [info[UIKeyboardAnimationDurationUserInfoKey] doubleValue];
+    UIViewAnimationCurve curve = (UIViewAnimationCurve)[info[UIKeyboardAnimationCurveUserInfoKey] integerValue];
+
+    [UIView animateWithDuration:duration
+                          delay:0
+                        options:(UIViewAnimationOptions)(curve << 16) | UIViewAnimationOptionBeginFromCurrentState
+                     animations:^{
+        self.activationView.transform = CGAffineTransformMakeTranslation(0, -shift);
+    } completion:nil];
+}
+
+- (void)keyboardWillHide:(NSNotification *)notification {
+    NSDictionary *info = notification.userInfo;
+    NSTimeInterval duration = [info[UIKeyboardAnimationDurationUserInfoKey] doubleValue];
+    UIViewAnimationCurve curve = (UIViewAnimationCurve)[info[UIKeyboardAnimationCurveUserInfoKey] integerValue];
+
+    [UIView animateWithDuration:duration
+                          delay:0
+                        options:(UIViewAnimationOptions)(curve << 16) | UIViewAnimationOptionBeginFromCurrentState
+                     animations:^{
+        self.activationView.transform = CGAffineTransformIdentity;
+    } completion:nil];
+}
+
+- (void)pasteActivationCode {
+    NSString *clipboard = UIPasteboard.generalPasteboard.string ?: @"";
+    NSString *normalized = GPNormalizeActivationCode(clipboard);
+    self.codeField.text = normalized;
+    if (normalized.length == 0) {
+        self.statusLabel.text = @"الحافظة لا تحتوي على كود";
+        self.statusLabel.textColor = GPColor(0xFF5D6C);
+        return;
+    }
+    self.statusLabel.text = @"تم لصق الكود";
+    self.statusLabel.textColor = GPColor(0x3FD68A);
 }
 
 - (void)buildFeaturesInterface {
@@ -340,9 +494,10 @@ static __weak GPSQActivationViewController *GPCurrentController;
 }
 
 - (void)activateTapped {
-    NSString *code = [[self.codeField.text ?: @"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet] uppercaseString];
-    if (code.length != 8) {
-        self.statusLabel.text = @"أدخل كودًا صحيحًا من 8 خانات";
+    NSString *code = GPNormalizeActivationCode(self.codeField.text);
+    self.codeField.text = code;
+    if (code.length < 8 || code.length > 20) {
+        self.statusLabel.text = @"أدخل كودًا رقميًا من 8 إلى 20 رقمًا";
         self.statusLabel.textColor = GPColor(0xFF5D6C);
         return;
     }
@@ -373,7 +528,17 @@ static __weak GPSQActivationViewController *GPCurrentController;
             self.statusLabel.text = @"تم التفعيل بنجاح";
             self.statusLabel.textColor = GPColor(0x3FD68A);
             [NSNotificationCenter.defaultCenter postNotificationName:GPActivationCompletedNotification object:nil userInfo:json];
-            [self showFeaturesAnimated:YES];
+            UINotificationFeedbackGenerator *feedback = [UINotificationFeedbackGenerator new];
+            [feedback notificationOccurred:UINotificationFeedbackTypeSuccess];
+            UIAlertController *successAlert = [UIAlertController alertControllerWithTitle:@"تم التفعيل"
+                                                                                  message:@"تم تفعيل الكود بنجاح"
+                                                                           preferredStyle:UIAlertControllerStyleAlert];
+            [successAlert addAction:[UIAlertAction actionWithTitle:@"دخول"
+                                                              style:UIAlertActionStyleDefault
+                                                            handler:^(__unused UIAlertAction *action) {
+                [self dismissViewControllerAnimated:YES completion:nil];
+            }]];
+            [self presentViewController:successAlert animated:YES completion:nil];
         });
     }];
 }
@@ -395,7 +560,7 @@ static __weak GPSQActivationViewController *GPCurrentController;
         dispatch_async(dispatch_get_main_queue(), ^{
             [self setBusy:NO text:@""];
             if (valid) {
-                [self showFeaturesAnimated:YES];
+                [self dismissViewControllerAnimated:NO completion:nil];
             } else {
                 GPKeychainDelete(GPTokenAccount);
                 [self showActivationAnimated:YES];
@@ -437,10 +602,13 @@ static __weak GPSQActivationViewController *GPCurrentController;
 
 - (NSString *)messageForResponse:(NSDictionary *)json error:(NSError *)error {
     if (error) return @"تعذر الاتصال بخادم التفعيل";
-    NSString *code = [json[@"error"] isKindOfClass:NSString.class] ? json[@"error"] : @"unknown";
+    NSString *serverMessage = [json[@"message"] isKindOfClass:NSString.class] ? json[@"message"] : nil;
+    NSString *code = [json[@"status"] isKindOfClass:NSString.class] ? json[@"status"] :
+                     ([json[@"error"] isKindOfClass:NSString.class] ? json[@"error"] : @"unknown");
     NSDictionary *messages = @{
         @"invalid_code": @"كود التفعيل غير صحيح",
         @"disabled_code": @"تم إيقاف هذا الكود",
+        @"closed_code": @"تم إيقاف هذا الكود",
         @"expired_code": @"انتهت صلاحية الكود",
         @"device_limit_reached": @"تم تجاوز عدد الأجهزة المسموح",
         @"invalid_project": @"مفتاح المشروع غير صحيح",
@@ -449,13 +617,35 @@ static __weak GPSQActivationViewController *GPCurrentController;
         @"session_expired": @"انتهت جلسة التفعيل",
         @"not_installed": @"نظام التفعيل غير مثبت على الخادم"
     };
-    return messages[code] ?: @"فشل التفعيل، حاول مرة أخرى";
+    return serverMessage.length > 0 ? serverMessage : (messages[code] ?: @"فشل التفعيل، حاول مرة أخرى");
 }
 
 - (BOOL)textField:(UITextField *)textField shouldChangeCharactersInRange:(NSRange)range replacementString:(NSString *)string {
     NSString *next = [textField.text stringByReplacingCharactersInRange:range withString:string];
-    NSCharacterSet *invalid = [[NSCharacterSet alphanumericCharacterSet] invertedSet];
-    return next.length <= 8 && [string rangeOfCharacterFromSet:invalid].location == NSNotFound;
+    textField.text = GPNormalizeActivationCode(next);
+    return NO;
+}
+
+- (void)textFieldDidBeginEditing:(UITextField *)textField {
+    textField.layer.borderColor = GPColor(0x2B6EF3).CGColor;
+    [UIView animateWithDuration:0.18
+                     animations:^{
+        textField.transform = CGAffineTransformMakeScale(1.015, 1.015);
+    }];
+}
+
+- (void)textFieldDidEndEditing:(UITextField *)textField {
+    textField.layer.borderColor = [UIColor.whiteColor colorWithAlphaComponent:0.09].CGColor;
+    [UIView animateWithDuration:0.18
+                     animations:^{
+        textField.transform = CGAffineTransformIdentity;
+    }];
+}
+
+- (BOOL)textFieldShouldReturn:(UITextField *)textField {
+    [textField resignFirstResponder];
+    [self activateTapped];
+    return YES;
 }
 
 - (void)searchTapped {

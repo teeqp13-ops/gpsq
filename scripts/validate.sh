@@ -20,6 +20,8 @@ required=(
   Resources/ar.lproj/Localizable.strings
   scripts/clean.sh
   scripts/build.sh
+  integrations/gpsq-activation/Sources/GPSQActivation.mm
+  integrations/gpsq-activation/control
 )
 
 for file in "${required[@]}"; do
@@ -33,14 +35,22 @@ bash -n scripts/clean.sh
 bash -n scripts/build.sh
 
 grep -Fq 'TWEAK_NAME := gpsq FakeGPSLocation' Makefile
-grep -Fq 'gpsq_FILES := FakeGPS.mm SharedBridge.xm FeaturePack.xm' Makefile
+grep -Fq 'FakeGPS.mm' Makefile
+grep -Fq 'SharedBridge.xm' Makefile
+grep -Fq 'FeaturePack.xm' Makefile
+grep -Fq 'Sources/WFModernPanel.xm' Makefile
+grep -Fq 'integrations/gpsq-activation/Sources/GPSQActivation.mm' Makefile
 grep -Fq 'FakeGPSLocation_FILES := LocationSpoof.xm' Makefile
 grep -Fq 'Package: com.khalid.fakegps' control
 grep -Eq '^Version: [0-9]+\.[0-9]+\.[0-9]+$' control
 grep -Fq 'com.apple.springboard' gpsq.plist
 grep -Fq 'CLLocationManager' FakeGPSLocation.plist
 grep -Fq 'FGLicenseIsActive' FeaturePack.xm
-grep -Fq 'https://key.p3nd.fun/api/activate.php' FeaturePack.xm
+grep -Fq 'GPSQShowActivation' FeaturePack.xm
+grep -Fq 'https://key.p3nd.fun/activation/api' integrations/gpsq-activation/Sources/GPSQActivation.mm
+grep -Fq 'GPProjectKey = @"gpsq"' integrations/gpsq-activation/Sources/GPSQActivation.mm
+grep -Fq 'Version: 17.0.0' control
+grep -Fq 'Version: 17.0.0' integrations/gpsq-activation/control
 
 python3 -m json.tool Resources/defaults.json >/dev/null
 python3 - <<'PY'

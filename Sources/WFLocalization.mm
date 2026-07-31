@@ -10,7 +10,7 @@ static NSString *const WFLanguageKey = @"WFLanguage";
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         strings = @{
-            @"title": @{ @"ar": @"Wolf GPS Pro", @"en": @"Wolf GPS Pro" },
+            @"title": @{ @"ar": @"Wolf GPS V17", @"en": @"Wolf GPS V17" },
             @"search_placeholder": @{ @"ar": @"ابحث عن موقع أو أدخل إحداثيات", @"en": @"Search a place or enter coordinates" },
             @"gps_on": @{ @"ar": @"إيقاف تغيير الموقع", @"en": @"Stop location spoofing" },
             @"gps_off": @{ @"ar": @"تفعيل تغيير الموقع", @"en": @"Enable location spoofing" },

@@ -1,18 +1,72 @@
 #import "WFGPXMovementManager.h"
 
 @interface WFGPXParser : NSObject <NSXMLParserDelegate>
-@property (nonatomic, strong) NSMutableArray<NSValue *> *points;
+@property (nonatomic, strong) NSMutableArray<NSMutableArray<NSValue *> *> *trackSegments;
+@property (nonatomic, strong) NSMutableArray<NSMutableArray<NSValue *> *> *routes;
+@property (nonatomic, strong, nullable) NSMutableArray<NSValue *> *currentSequence;
+- (NSArray<NSValue *> *)bestPoints;
 @end
 
 @implementation WFGPXParser
-- (instancetype)init { if ((self = [super init])) _points = [NSMutableArray array]; return self; }
-- (void)parser:(NSXMLParser *)parser didStartElement:(NSString *)elementName namespaceURI:(NSString *)namespaceURI qualifiedName:(NSString *)qName attributes:(NSDictionary<NSString *,NSString *> *)attributeDict {
-    if (![elementName isEqualToString:@"trkpt"] && ![elementName isEqualToString:@"rtept"] && ![elementName isEqualToString:@"wpt"]) return;
-    double lat = [attributeDict[@"lat"] doubleValue];
-    double lon = [attributeDict[@"lon"] doubleValue];
-    CLLocationCoordinate2D c = CLLocationCoordinate2DMake(lat, lon);
-    if (CLLocationCoordinate2DIsValid(c)) [self.points addObject:[NSValue value:&c withObjCType:@encode(CLLocationCoordinate2D)]];
+
+- (instancetype)init {
+    if ((self = [super init])) {
+        _trackSegments = [NSMutableArray array];
+        _routes = [NSMutableArray array];
+    }
+    return self;
 }
+
+- (void)parser:(NSXMLParser *)parser
+ didStartElement:(NSString *)elementName
+    namespaceURI:(NSString *)namespaceURI
+   qualifiedName:(NSString *)qName
+      attributes:(NSDictionary<NSString *, NSString *> *)attributeDict {
+    if ([elementName isEqualToString:@"trkseg"]) {
+        self.currentSequence = [NSMutableArray array];
+        [self.trackSegments addObject:self.currentSequence];
+        return;
+    }
+    if ([elementName isEqualToString:@"rte"]) {
+        self.currentSequence = [NSMutableArray array];
+        [self.routes addObject:self.currentSequence];
+        return;
+    }
+
+    BOOL isTrackPoint = self.currentSequence && [elementName isEqualToString:@"trkpt"] && [self.trackSegments containsObject:self.currentSequence];
+    BOOL isRoutePoint = self.currentSequence && [elementName isEqualToString:@"rtept"] && [self.routes containsObject:self.currentSequence];
+    NSString *latitudeValue = attributeDict[@"lat"];
+    NSString *longitudeValue = attributeDict[@"lon"];
+    if ((!isTrackPoint && !isRoutePoint) || !latitudeValue.length || !longitudeValue.length) return;
+
+    CLLocationCoordinate2D coordinate = CLLocationCoordinate2DMake(latitudeValue.doubleValue, longitudeValue.doubleValue);
+    if (CLLocationCoordinate2DIsValid(coordinate)) {
+        [self.currentSequence addObject:[NSValue value:&coordinate withObjCType:@encode(CLLocationCoordinate2D)]];
+    }
+}
+
+- (void)parser:(NSXMLParser *)parser
+   didEndElement:(NSString *)elementName
+    namespaceURI:(NSString *)namespaceURI
+   qualifiedName:(NSString *)qName {
+    if ([elementName isEqualToString:@"trkseg"] || [elementName isEqualToString:@"rte"]) {
+        self.currentSequence = nil;
+    }
+}
+
+- (NSArray<NSValue *> *)bestPoints {
+    NSArray<NSValue *> *best = @[];
+    for (NSArray<NSValue *> *segment in self.trackSegments) {
+        if (segment.count > best.count) best = segment;
+    }
+    if (best.count >= 2) return best;
+
+    for (NSArray<NSValue *> *route in self.routes) {
+        if (route.count > best.count) best = route;
+    }
+    return best;
+}
+
 @end
 
 @interface WFGPXMovementManager ()
@@ -39,12 +93,13 @@
     NSXMLParser *parser = [[NSXMLParser alloc] initWithData:data ?: NSData.data];
     parser.delegate = delegate;
     BOOL parsed = [parser parse];
-    if (!parsed || delegate.points.count < 2) {
-        if (error) *error = parser.parserError ?: [NSError errorWithDomain:@"WFGPX" code:1 userInfo:@{NSLocalizedDescriptionKey:@"GPX requires at least two valid points"}];
+    NSArray<NSValue *> *points = [delegate bestPoints];
+    if (!parsed || points.count < 2) {
+        if (error) *error = parser.parserError ?: [NSError errorWithDomain:@"WFGPX" code:1 userInfo:@{NSLocalizedDescriptionKey:@"GPX requires one track segment or route with at least two valid points"}];
         self.points = @[];
         return NO;
     }
-    self.points = delegate.points.copy;
+    self.points = points.copy;
     self.segmentIndex = 0;
     self.segmentProgress = 0;
     return YES;

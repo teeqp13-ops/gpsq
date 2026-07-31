@@ -7,7 +7,7 @@ OUT_DIR="$ROOT_DIR/artifacts"
 PKG_ROOT="$(mktemp -d)"
 trap 'rm -rf "$PKG_ROOT"' EXIT
 
-VERSION="${GPSQ_PANEL_VERSION:-1.0.0}"
+VERSION="${GPSQ_PANEL_VERSION:-17.0.0}"
 ARCH="${GPSQ_PANEL_ARCH:-all}"
 INSTALL_DIR="$PKG_ROOT/var/www/gpsq-panel"
 
@@ -18,7 +18,7 @@ cp "$SERVER_DIR/README_AR.md" "$INSTALL_DIR/"
 
 cat > "$PKG_ROOT/DEBIAN/control" <<EOF
 Package: com.khalid.gpsq-panel
-Name: GPSQ PHP Control Panel
+Name: Wolf GPS V17 Control Panel
 Version: $VERSION
 Architecture: $ARCH
 Maintainer: Khalid

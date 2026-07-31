@@ -27,6 +27,17 @@ function verifyCsrf(): void
     }
 }
 
+/** إنشاء كود رقمي آمن بطول ثابت، بدون شرطات أو فواصل */
+function generateNumericCode(int $length): string
+{
+    $length = max(8, min($length, 20));
+    $code = (string)random_int(1, 9);
+    for ($index = 1; $index < $length; $index++) {
+        $code .= (string)random_int(0, 9);
+    }
+    return $code;
+}
+
 // ============================================================
 // المصادقة
 // ============================================================
@@ -57,15 +68,45 @@ $isAuth = !empty($_SESSION['auth']);
 // إجراءات لوحة التحكم (تتطلب المصادقة)
 // ============================================================
 $actionMsg = '';
+$generatedCodes = [];
 
 if ($isAuth) {
     $db = getDB();
 
+    // توليد مجموعة أكواد رقمية بدون فواصل
+    if (isset($_POST['generate_codes'])) {
+        verifyCsrf();
+        $count = max(1, min((int)($_POST['code_count'] ?? 1), 500));
+        $length = max(8, min((int)($_POST['code_length'] ?? 12), 20));
+        $durationDays = max(1, min((int)($_POST['duration_days'] ?? 30), 3650));
+        $maxDevices = max(1, min((int)($_POST['max_devices'] ?? 1), 20));
+
+        $db->beginTransaction();
+        try {
+            $insert = $db->prepare('INSERT INTO codes(code,duration_days,max_devices) VALUES(?,?,?)');
+            while (count($generatedCodes) < $count) {
+                $candidate = generateNumericCode($length);
+                try {
+                    $insert->execute([$candidate, $durationDays, $maxDevices]);
+                    $generatedCodes[] = $candidate;
+                } catch (PDOException $exception) {
+                    if ((string)$exception->getCode() !== '23000') throw $exception;
+                }
+            }
+            $db->commit();
+            $actionMsg = '✅ تم توليد ' . count($generatedCodes) . ' كود رقمي';
+        } catch (Throwable $exception) {
+            if ($db->inTransaction()) $db->rollBack();
+            $generatedCodes = [];
+            $actionMsg = '⚠️ تعذر توليد الأكواد';
+        }
+    }
+
     // إضافة كود جديد
     if (isset($_POST['add_code'])) {
         verifyCsrf();
-        $newCode = strtoupper(trim($_POST['new_code'] ?? ''));
-        if (preg_match('/^[A-Z0-9]{4,32}$/', $newCode)) {
+        $newCode = preg_replace('/\D+/', '', (string)($_POST['new_code'] ?? ''));
+        if (preg_match('/^\d{8,20}$/', $newCode)) {
             try {
                 $db->prepare("INSERT INTO codes (code) VALUES (?)")->execute([$newCode]);
                 $actionMsg = "✅ تمت إضافة الكود: $newCode";
@@ -73,7 +114,7 @@ if ($isAuth) {
                 $actionMsg = '⚠️ الكود موجود مسبقاً أو حدث خطأ';
             }
         } else {
-            $actionMsg = '⚠️ الكود يجب أن يحتوي على 4-32 حرف/رقم فقط (A-Z, 0-9)';
+            $actionMsg = '⚠️ الكود يجب أن يكون من 8 إلى 20 رقمًا بدون فواصل';
         }
     }
 
@@ -82,10 +123,67 @@ if ($isAuth) {
         verifyCsrf();
         $codeTarget = trim($_POST['code_target'] ?? '');
         $newStatus  = trim($_POST['new_status'] ?? '');
-        $allowed    = ['unused', 'linked', 'expired', 'closed'];
+        $allowed    = ['unused', 'linked', 'disabled', 'expired', 'closed'];
         if ($codeTarget && in_array($newStatus, $allowed, true)) {
-            $db->prepare("UPDATE codes SET status=? WHERE code=?")->execute([$newStatus, $codeTarget]);
+            $db->beginTransaction();
+            try {
+                if ($newStatus === 'unused') {
+                    $db->prepare('DELETE FROM tokens WHERE code=?')->execute([$codeTarget]);
+                    $db->prepare('DELETE FROM devices WHERE code=?')->execute([$codeTarget]);
+                    $db->prepare("UPDATE codes SET status='unused',udid=NULL,device_name=NULL,ios_version=NULL,app_version=NULL,activated_at=NULL,expires_at=NULL WHERE code=?")
+                       ->execute([$codeTarget]);
+                } else {
+                    $db->prepare("UPDATE codes SET status=? WHERE code=?")->execute([$newStatus, $codeTarget]);
+                }
+                if (in_array($newStatus, ['disabled', 'closed'], true)) {
+                    $db->prepare('DELETE FROM tokens WHERE code=?')->execute([$codeTarget]);
+                }
+                $db->commit();
+            } catch (Throwable $exception) {
+                if ($db->inTransaction()) $db->rollBack();
+                throw $exception;
+            }
             $actionMsg = "✅ تم تغيير حالة الكود إلى: $newStatus";
+        }
+    }
+
+    // إجراءات جماعية للأكواد المحددة
+    if (isset($_POST['bulk_action'])) {
+        verifyCsrf();
+        $bulkAction = (string)($_POST['bulk_action'] ?? '');
+        $selectedCodes = array_values(array_unique(array_filter(
+            array_map('strval', (array)($_POST['selected_codes'] ?? [])),
+            static fn(string $code): bool => preg_match('/^\d{8,20}$/', $code) === 1
+        )));
+        if (!$selectedCodes) {
+            $actionMsg = '⚠️ اختر كودًا واحدًا على الأقل';
+        } elseif (!in_array($bulkAction, ['enable', 'disable', 'stop', 'delete'], true)) {
+            $actionMsg = '⚠️ الإجراء غير صالح';
+        } else {
+            $db->beginTransaction();
+            try {
+                $placeholders = implode(',', array_fill(0, count($selectedCodes), '?'));
+                if ($bulkAction === 'delete') {
+                    $db->prepare("DELETE FROM codes WHERE code IN ($placeholders)")->execute($selectedCodes);
+                } elseif ($bulkAction === 'enable') {
+                    $db->prepare("DELETE FROM tokens WHERE code IN ($placeholders)")->execute($selectedCodes);
+                    $db->prepare("DELETE FROM devices WHERE code IN ($placeholders)")->execute($selectedCodes);
+                    $db->prepare("UPDATE codes SET status='unused',udid=NULL,device_name=NULL,ios_version=NULL,app_version=NULL,activated_at=NULL,expires_at=NULL WHERE code IN ($placeholders)")
+                       ->execute($selectedCodes);
+                } else {
+                    $status = ['disable' => 'disabled', 'stop' => 'closed'][$bulkAction];
+                    $db->prepare("UPDATE codes SET status=? WHERE code IN ($placeholders)")
+                       ->execute(array_merge([$status], $selectedCodes));
+                    if (in_array($status, ['disabled', 'closed'], true)) {
+                        $db->prepare("DELETE FROM tokens WHERE code IN ($placeholders)")->execute($selectedCodes);
+                    }
+                }
+                $db->commit();
+                $actionMsg = '✅ تم تنفيذ الإجراء على ' . count($selectedCodes) . ' كود';
+            } catch (Throwable $exception) {
+                if ($db->inTransaction()) $db->rollBack();
+                $actionMsg = '⚠️ تعذر تنفيذ الإجراء الجماعي';
+            }
         }
     }
 
@@ -113,7 +211,7 @@ if ($isAuth) {
 
     // فلتر الحالة
     $filterStatus = $_GET['status'] ?? 'all';
-    $allowed      = ['all', 'unused', 'linked', 'expired', 'closed'];
+    $allowed      = ['all', 'unused', 'linked', 'disabled', 'expired', 'closed'];
     if (!in_array($filterStatus, $allowed, true)) {
         $filterStatus = 'all';
     }
@@ -128,7 +226,7 @@ if ($isAuth) {
 
     // إحصائيات
     $counts = $db->query("SELECT status, COUNT(*) as cnt FROM codes GROUP BY status")->fetchAll();
-    $statsMap = ['unused' => 0, 'linked' => 0, 'expired' => 0, 'closed' => 0];
+    $statsMap = ['unused' => 0, 'linked' => 0, 'disabled' => 0, 'expired' => 0, 'closed' => 0];
     foreach ($counts as $c) {
         $statsMap[$c['status']] = (int)$c['cnt'];
     }
@@ -159,6 +257,7 @@ function statusBadge(string $status): string
     $map = [
         'unused'  => ['label' => 'غير مستخدم', 'class' => 'badge-unused'],
         'linked'  => ['label' => 'مرتبط',       'class' => 'badge-linked'],
+        'disabled'=> ['label' => 'معطّل',       'class' => 'badge-disabled'],
         'expired' => ['label' => 'منتهي',        'class' => 'badge-expired'],
         'closed'  => ['label' => 'مغلق',         'class' => 'badge-closed'],
     ];
@@ -318,7 +417,7 @@ $apiKeyFull    = GPSQ_API_KEY ?: '';
   .btn-sm { padding: 4px 10px; font-size: 0.8rem; }
 
   /* ── حقول الإدخال ── */
-  input[type=text], input[type=password], select {
+  input[type=text], input[type=password], input[type=number], select, textarea {
     background: var(--surface);
     border: 1px solid var(--border);
     color: var(--text);
@@ -364,6 +463,7 @@ $apiKeyFull    = GPSQ_API_KEY ?: '';
   }
   .badge-unused  { background: rgba(59,130,246,.2);  color: #93c5fd; }
   .badge-linked  { background: rgba(34,197,94,.2);   color: #86efac; }
+  .badge-disabled{ background: rgba(239,68,68,.2);   color: #fca5a5; }
   .badge-expired { background: rgba(245,158,11,.2);  color: #fcd34d; }
   .badge-closed  { background: rgba(107,114,128,.2); color: #9ca3af; }
 
@@ -401,6 +501,15 @@ $apiKeyFull    = GPSQ_API_KEY ?: '';
   }
   .add-form .field { flex: 1; min-width: 180px; }
   .add-form label { display: block; font-size: 0.82rem; color: var(--muted); margin-bottom: 5px; }
+  .generated-box {
+    width: 100%;
+    min-height: 150px;
+    resize: vertical;
+    direction: ltr;
+    text-align: left;
+    font-family: monospace;
+    line-height: 1.7;
+  }
 
   /* ── رسائل التنبيه ── */
   .alert {
@@ -501,6 +610,7 @@ $apiKeyFull    = GPSQ_API_KEY ?: '';
   <div class="stat-card"><div class="val val-total"><?= $stats['total'] ?></div><div class="lbl">إجمالي الأكواد</div></div>
   <div class="stat-card"><div class="val val-unused"><?= $stats['unused'] ?></div><div class="lbl">غير مستخدم</div></div>
   <div class="stat-card"><div class="val val-linked"><?= $stats['linked'] ?></div><div class="lbl">مرتبط</div></div>
+  <div class="stat-card"><div class="val" style="color:var(--danger)"><?= $stats['disabled'] ?></div><div class="lbl">معطّل</div></div>
   <div class="stat-card"><div class="val" style="color:var(--warning)"><?= $stats['expired'] ?></div><div class="lbl">منتهي</div></div>
   <div class="stat-card"><div class="val" style="color:var(--muted)"><?= $stats['closed'] ?></div><div class="lbl">مغلق</div></div>
   <div class="stat-card"><div class="val val-installs"><?= $stats['installs'] ?></div><div class="lbl">أجهزة مثبَّتة</div></div>
@@ -515,12 +625,44 @@ $apiKeyFull    = GPSQ_API_KEY ?: '';
 <!-- ===== تبويب الأكواد ===== -->
 <div class="tab-panel active" id="tab-codes">
 
+  <!-- توليد أكواد رقمية -->
+  <form method="post" class="add-form">
+    <input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>">
+    <div class="field">
+      <label for="code_count">عدد الأكواد</label>
+      <input type="number" id="code_count" name="code_count" value="10" min="1" max="500" required>
+    </div>
+    <div class="field">
+      <label for="code_length">طول الكود الرقمي</label>
+      <input type="number" id="code_length" name="code_length" value="12" min="8" max="20" required>
+    </div>
+    <div class="field">
+      <label for="duration_days">المدة بالأيام</label>
+      <input type="number" id="duration_days" name="duration_days" value="30" min="1" max="3650" required>
+    </div>
+    <div class="field">
+      <label for="max_devices">عدد الأجهزة</label>
+      <input type="number" id="max_devices" name="max_devices" value="1" min="1" max="20" required>
+    </div>
+    <button name="generate_codes" class="btn btn-primary">توليد الأكواد</button>
+  </form>
+
+  <?php if ($generatedCodes): ?>
+  <div class="add-form">
+    <div class="field" style="flex-basis:100%">
+      <label for="generated_codes">الأكواد الجديدة — كل كود رقمي بدون فواصل</label>
+      <textarea id="generated_codes" class="generated-box" readonly><?= e(implode("\n", $generatedCodes)) ?></textarea>
+    </div>
+    <button type="button" class="btn btn-primary copy-generated">نسخ جميع الأكواد</button>
+  </div>
+  <?php endif; ?>
+
   <!-- إضافة كود -->
   <form method="post" class="add-form">
     <input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>">
     <div class="field">
-      <label for="new_code">إضافة كود جديد (حروف وأرقام إنجليزية 4-32 خانة)</label>
-      <input type="text" id="new_code" name="new_code" placeholder="مثال: ABCD1234" maxlength="32" style="text-transform:uppercase">
+      <label for="new_code">إضافة كود رقمي يدويًا من 8 إلى 20 رقمًا</label>
+      <input type="text" id="new_code" name="new_code" placeholder="مثال: 123456789012" minlength="8" maxlength="20" inputmode="numeric" pattern="[0-9]{8,20}">
     </div>
     <button name="add_code" class="btn btn-primary">➕ إضافة</button>
   </form>
@@ -529,14 +671,23 @@ $apiKeyFull    = GPSQ_API_KEY ?: '';
   <div class="toolbar">
     <div class="filter-btns">
       <?php
-      $filters = ['all' => 'الكل', 'unused' => 'غير مستخدم', 'linked' => 'مرتبط', 'expired' => 'منتهي', 'closed' => 'مغلق'];
+      $filters = ['all' => 'الكل', 'unused' => 'غير مستخدم', 'linked' => 'مرتبط', 'disabled' => 'معطّل', 'expired' => 'منتهي', 'closed' => 'موقوف'];
       foreach ($filters as $val => $lbl):
       ?>
       <a href="?status=<?= $val ?>" class="filter-btn <?= $filterStatus === $val ? 'active' : '' ?>"><?= $lbl ?></a>
       <?php endforeach; ?>
     </div>
     <button class="btn btn-primary btn-sm copy-selected">نسخ المحدد</button>
+    <button class="btn btn-ghost btn-sm bulk-action" data-action="enable">تشغيل المحدد</button>
+    <button class="btn btn-ghost btn-sm bulk-action" data-action="disable">تعطيل المحدد</button>
+    <button class="btn btn-ghost btn-sm bulk-action" data-action="stop">إيقاف المحدد</button>
+    <button class="btn btn-danger btn-sm bulk-action" data-action="delete">حذف المحدد</button>
   </div>
+  <form method="post" id="bulk-form" hidden>
+    <input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>">
+    <input type="hidden" name="bulk_action" id="bulk-action-value">
+    <div id="bulk-code-values"></div>
+  </form>
 
   <!-- الجدول -->
   <div class="table-wrap">
@@ -579,8 +730,8 @@ $apiKeyFull    = GPSQ_API_KEY ?: '';
               <input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>">
               <input type="hidden" name="code_target" value="<?= e($row['code']) ?>">
               <select name="new_status" style="padding:3px 6px;font-size:.8rem;width:auto">
-                <?php foreach (['unused','linked','expired','closed'] as $s): ?>
-                <option value="<?= $s ?>" <?= $row['status'] === $s ? 'selected' : '' ?>><?= ['unused'=>'غير مستخدم','linked'=>'مرتبط','expired'=>'منتهي','closed'=>'مغلق'][$s] ?></option>
+                <?php foreach (['unused','linked','disabled','expired','closed'] as $s): ?>
+                <option value="<?= $s ?>" <?= $row['status'] === $s ? 'selected' : '' ?>><?= ['unused'=>'تشغيل','linked'=>'مرتبط','disabled'=>'تعطيل','expired'=>'منتهي','closed'=>'إيقاف'][$s] ?></option>
                 <?php endforeach; ?>
               </select>
               <button name="change_status" class="btn btn-ghost btn-sm">حفظ</button>

@@ -58,7 +58,7 @@ jobs:
           grep -q 'Sources/WFModernPanel.xm' Makefile
           grep -q 'integrations/gpsq-activation/Sources/GPSQActivation.mm' Makefile
           grep -q 'Security' Makefile
-          grep -q 'key.p3nd.fun/activation/api' integrations/gpsq-activation/Sources/GPSQActivation.mm
+          grep -q 'mm.p3nd.fun/api' integrations/gpsq-activation/Sources/GPSQActivation.mm
           grep -q 'GPProjectKey = @"gpsq"' integrations/gpsq-activation/Sources/GPSQActivation.mm
 
       - name: Build main package

@@ -125,62 +125,7 @@ static void FGAppendRecord(NSString *key, NSDictionary *record, NSUInteger maxCo
 
 %new
 - (void)fg_showActivationGate {
-    UIViewController *controller = FGTopController();
-    if (!controller || [controller.presentedViewController isKindOfClass:UIAlertController.class]) return;
-
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"تفعيل FAKE GPS"
-                                                                   message:@"أدخل كود الترخيص لفتح المنيو والمميزات"
-                                                            preferredStyle:UIAlertControllerStyleAlert];
-    [alert addTextFieldWithConfigurationHandler:^(UITextField *field) {
-        field.placeholder = @"XXXX-XXXX-XXXX";
-        field.textAlignment = NSTextAlignmentCenter;
-        field.autocapitalizationType = UITextAutocapitalizationTypeAllCharacters;
-        field.clearButtonMode = UITextFieldViewModeWhileEditing;
-    }];
-    [alert addAction:[UIAlertAction actionWithTitle:@"إلغاء" style:UIAlertActionStyleCancel handler:nil]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"تفعيل" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
-        (void)action;
-        NSString *code = [alert.textFields.firstObject.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
-        if (code.length == 0) { FGShowAlert(@"تنبيه", @"أدخل كود الترخيص."); return; }
-
-        NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:@"https://key.p3nd.fun/BYANO_Merged/api/activate.php"]];
-        request.HTTPMethod = @"POST";
-        [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
-        NSDictionary *body = @{ @"code":code, @"license_code":code, @"device_uuid":FGDeviceUUID(), @"project":@"FAKE GPS", @"platform":@"ios" };
-        request.HTTPBody = [NSJSONSerialization dataWithJSONObject:body options:0 error:nil];
-
-        NSURLSessionDataTask *task = [NSURLSession.sharedSession dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
-            (void)response;
-            BOOL success = NO;
-            NSString *message = @"تعذر الاتصال بخادم التفعيل.";
-            if (!error && data.length) {
-                NSDictionary *json = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
-                if ([json isKindOfClass:NSDictionary.class]) {
-                    NSString *status = [[json[@"status"] description] lowercaseString];
-                    success = [json[@"success"] boolValue] || [@[@"success",@"valid",@"active",@"ok",@"approved"] containsObject:status];
-                    message = json[@"message"] ?: (success ? @"تم التفعيل بنجاح." : @"الكود غير صالح أو منتهي.");
-                    if (success) {
-                        NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
-                        [defaults setObject:code forKey:FGLicenseCodeKey];
-                        [defaults setBool:YES forKey:FGLicenseActiveKey];
-                        NSString *token = json[@"token"] ?: json[@"auth_token"] ?: json[@"data"][@"token"];
-                        if ([token isKindOfClass:NSString.class] && token.length) [defaults setObject:token forKey:FGLicenseTokenKey];
-                        [defaults synchronize];
-                    }
-                }
-            }
-            dispatch_async(dispatch_get_main_queue(), ^{
-                if (success) {
-                    FGShowAlert(@"تم التفعيل", message);
-                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.7*NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ [self openMenu]; });
-                } else {
-                    FGShowAlert(@"فشل التفعيل", message);
-                }
-            });
-        }];
-        [task resume];
-    }]];
-    [controller presentViewController:alert animated:YES completion:nil];
+    [[NSNotificationCenter defaultCenter] postNotificationName:@"GPSQShowActivation" object:nil];
 }
 
 %new
@@ -237,6 +182,23 @@ static void FGAppendRecord(NSString *key, NSDictionary *record, NSUInteger maxCo
     NSString *uuid = FGDeviceUUID();
     UIPasteboard.generalPasteboard.string = uuid;
     FGShowAlert(@"معرف الجهاز",[NSString stringWithFormat:@"%@\n\nتم نسخه.",uuid]);
+}
+
+%end
+
+
+#pragma mark - إظهار أيقونة Wolf GPS V17 عند أزرار الصوت
+
+%hook SBMediaController
+
+- (void)volumeUpPressed {
+    [[NSNotificationCenter defaultCenter] postNotificationName:@"GPSQShowFloatingIcon" object:nil];
+    %orig;
+}
+
+- (void)volumeDownPressed {
+    [[NSNotificationCenter defaultCenter] postNotificationName:@"GPSQShowFloatingIcon" object:nil];
+    %orig;
 }
 
 %end

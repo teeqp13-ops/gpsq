@@ -80,7 +80,6 @@ static UIViewController *WFPanelTopController(UIWindow *window) {
         _selectedCoordinate = CLLocationCoordinate2DMake(24.7136, 46.6753);
         _suggestions = @[];
         _movementManager = [WFGPXMovementManager new];
-        _movementManager.loops = YES;
         __weak typeof(self) weakSelf = self;
         _movementManager.coordinateHandler = ^(CLLocationCoordinate2D coordinate) {
             [weakSelf selectCoordinate:coordinate center:YES];
@@ -117,6 +116,7 @@ static UIViewController *WFPanelTopController(UIWindow *window) {
         [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(volumeChanged:) name:@"AVSystemController_SystemVolumeDidChangeNotification" object:nil];
         [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(rebuildPanel) name:WFThemeDidChangeNotification object:nil];
         [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(rebuildPanel) name:WFLanguageDidChangeNotification object:nil];
+        [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(openPanel) name:@"GPSQOpenModernPanel" object:nil];
         [self attachWhenReady];
     });
 }
@@ -410,6 +410,9 @@ static UIViewController *WFPanelTopController(UIWindow *window) {
     hideButton.autoresizingMask = UIViewAutoresizingFlexibleWidth;
     [content addSubview:hideButton];
 
+    // Search results must remain above every sheet control and receive touches.
+    [content bringSubviewToFront:self.suggestionsTable];
+
     CLLocationDegrees latitude = [NSUserDefaults.standardUserDefaults doubleForKey:@"FGLatitude"];
     CLLocationDegrees longitude = [NSUserDefaults.standardUserDefaults doubleForKey:@"FGLongitude"];
     CLLocationCoordinate2D initial = CLLocationCoordinate2DMake(latitude, longitude);
@@ -625,6 +628,9 @@ static UIViewController *WFPanelTopController(UIWindow *window) {
 - (void)searchBar:(UISearchBar *)searchBar textDidChange:(NSString *)searchText {
     self.searchCompleter.queryFragment = searchText ?: @"";
     self.suggestionsTable.hidden = searchText.length < 2;
+    if (!self.suggestionsTable.hidden) {
+        [self.suggestionsTable.superview bringSubviewToFront:self.suggestionsTable];
+    }
 }
 
 - (void)searchBarSearchButtonClicked:(UISearchBar *)searchBar {
@@ -649,6 +655,9 @@ static UIViewController *WFPanelTopController(UIWindow *window) {
     else self.suggestions = completer.results;
     [self.suggestionsTable reloadData];
     self.suggestionsTable.hidden = self.suggestions.count == 0;
+    if (!self.suggestionsTable.hidden) {
+        [self.suggestionsTable.superview bringSubviewToFront:self.suggestionsTable];
+    }
 }
 
 - (void)completer:(MKLocalSearchCompleter *)completer didFailWithError:(NSError *)error {
