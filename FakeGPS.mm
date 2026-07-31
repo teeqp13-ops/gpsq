@@ -55,6 +55,7 @@ static UIImage *FGSymbol(NSString *name) {
 @property(nonatomic,strong) UILabel *coordinateLabel;
 @property(nonatomic,strong) UILabel *statusLabel;
 @property(nonatomic,strong) UIButton *gpsToggleButton;
+@property(nonatomic,strong) UITextField *manualIDField;
 @property(nonatomic,weak) UIWindow *hostWindow;
 @property(nonatomic,assign) NSInteger retryCount;
 @property(nonatomic,assign) NSInteger volumeCount;
@@ -341,9 +342,31 @@ static UIImage *FGSymbol(NSString *name) {
     };
 
     sectionLabel(@"مجموعة المعرف", y); y += 32;
-    UIButton *showID = [self cardButton:@"عرض المعرف الحالي" symbol:@"iphone" frame:CGRectMake(14, y, width, 48) action:@selector(showDeviceID)];
-    UIButton *newID = [self cardButton:@"إنشاء معرف جديد" symbol:@"arrow.triangle.2.circlepath" frame:CGRectMake(22 + width, y, width, 48) action:@selector(generateNewID)];
-    [features addSubview:showID]; [features addSubview:newID]; y += 56;
+
+    UITextField *manualID = [[UITextField alloc] initWithFrame:CGRectMake(14, y, CGRectGetWidth(panel.bounds) - 28, 48)];
+    manualID.placeholder = @"أدخل معرف الجهاز يدويًا";
+    manualID.text = FGCurrentDeviceIdentifier();
+    manualID.textColor = UIColor.whiteColor;
+    manualID.tintColor = FGColor(130, 174, 255);
+    manualID.textAlignment = NSTextAlignmentCenter;
+    manualID.font = [UIFont monospacedSystemFontOfSize:13 weight:UIFontWeightMedium];
+    manualID.autocorrectionType = UITextAutocorrectionTypeNo;
+    manualID.autocapitalizationType = UITextAutocapitalizationTypeAllCharacters;
+    manualID.clearButtonMode = UITextFieldViewModeWhileEditing;
+    manualID.backgroundColor = FGColor(17, 21, 26);
+    manualID.layer.cornerRadius = 14;
+    manualID.layer.borderWidth = 1;
+    manualID.layer.borderColor = FGColor(42, 46, 55).CGColor;
+    manualID.clipsToBounds = YES;
+    self.manualIDField = manualID;
+    [features addSubview:manualID];
+    y += 56;
+
+    UIButton *autoID = [self cardButton:@"استخراج تلقائي" symbol:@"wand.and.stars" frame:CGRectMake(14, y, width, 48) action:@selector(extractAutomaticDeviceIdentifier)];
+    UIButton *saveID = [self cardButton:@"حفظ المعرف" symbol:@"checkmark.circle.fill" frame:CGRectMake(22 + width, y, width, 48) action:@selector(saveDeviceIdentifier)];
+    saveID.backgroundColor = FGColor(168, 112, 18);
+    [features addSubview:autoID]; [features addSubview:saveID]; y += 56;
+
     UIButton *copyID = [self cardButton:@"نسخ المعرف" symbol:@"doc.on.doc" frame:CGRectMake(14, y, width, 48) action:@selector(copyDeviceID)];
     UIButton *idSettings = [self cardButton:@"إعدادات المعرف" symbol:@"gearshape" frame:CGRectMake(22 + width, y, width, 48) action:@selector(idSettingsTapped)];
     [features addSubview:copyID]; [features addSubview:idSettings]; y += 62;
@@ -619,10 +642,62 @@ static UIImage *FGSymbol(NSString *name) {
     [self showMessage:[NSString stringWithFormat:@"المعرف الحالي:\n%@", FGCurrentDeviceIdentifier()]];
 }
 
+- (void)extractAutomaticDeviceIdentifier {
+    NSString *automaticID = UIDevice.currentDevice.identifierForVendor.UUIDString;
+    if (automaticID.length == 0) automaticID = NSUUID.UUID.UUIDString;
+    self.manualIDField.text = automaticID;
+}
+
+- (void)saveDeviceIdentifier {
+    NSString *enteredID = [self.manualIDField.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    if (enteredID.length == 0) {
+        enteredID = UIDevice.currentDevice.identifierForVendor.UUIDString;
+        if (enteredID.length == 0) enteredID = NSUUID.UUID.UUIDString;
+    }
+
+    if (enteredID.length < 8 || enteredID.length > 128) {
+        [self showMessage:@"يجب أن يكون المعرف بين 8 و128 خانة."];
+        return;
+    }
+
+    NSCharacterSet *invalid = [[NSCharacterSet characterSetWithCharactersInString:@"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_:."] invertedSet];
+    if ([enteredID rangeOfCharacterFromSet:invalid].location != NSNotFound) {
+        [self showMessage:@"المعرف يقبل الحروف الإنجليزية والأرقام والرموز - _ : . فقط."];
+        return;
+    }
+
+    NSString *previousID = FGCurrentDeviceIdentifier();
+    BOOL changed = ![previousID isEqualToString:enteredID];
+    NSUserDefaults *defaults = FGDefaults();
+    [defaults setObject:enteredID forKey:FGDeviceIdentifierKey];
+    [defaults setObject:enteredID forKey:@"saved_device_id"];
+    [defaults setObject:enteredID forKey:@"FGDeviceUUID"];
+    if (changed) {
+        [defaults setBool:NO forKey:@"FGLicenseActive"];
+        [defaults removeObjectForKey:@"FGLicenseToken"];
+    }
+    [defaults synchronize];
+    self.manualIDField.text = enteredID;
+
+    UIViewController *controller = self.hostWindow.rootViewController;
+    while (controller.presentedViewController) controller = controller.presentedViewController;
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"تم حفظ المعرف"
+                                                                   message:enteredID
+                                                            preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"حسنًا" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
+        if (changed) {
+            [[NSNotificationCenter defaultCenter] postNotificationName:@"GPSQResetActivation" object:nil];
+            [self closeMenu];
+        }
+    }]];
+    [controller presentViewController:alert animated:YES completion:nil];
+}
+
 - (void)generateNewID {
     NSString *newIdentifier = NSUUID.UUID.UUIDString;
     NSUserDefaults *defaults = FGDefaults();
     [defaults setObject:newIdentifier forKey:FGDeviceIdentifierKey];
+    [defaults setObject:newIdentifier forKey:@"saved_device_id"];
     [defaults setObject:newIdentifier forKey:@"FGDeviceUUID"];
     [defaults setBool:NO forKey:@"FGLicenseActive"];
     [defaults removeObjectForKey:@"FGLicenseToken"];
