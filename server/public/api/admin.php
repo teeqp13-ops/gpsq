@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/config.php';
 
-header('Access-Control-Allow-Origin: https://wolf-gps-control.chatgpt-sites.com');
+header('Access-Control-Allow-Origin: https://mm.p3nd.fun');
 header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type, X-Api-Key, Authorization');
 

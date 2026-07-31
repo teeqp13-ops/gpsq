@@ -4,7 +4,7 @@
 #import <MapKit/MapKit.h>
 #import <CoreLocation/CoreLocation.h>
 
-static NSString *const GPAPIBase = @"https://key.p3nd.fun/activation/api";
+static NSString *const GPAPIBase = @"https://mm.p3nd.fun/api";
 static NSString *const GPProjectKey = @"gpsq";
 static NSString *const GPKeychainService = @"com.wolfox.gpsq.activation";
 static NSString *const GPTokenAccount = @"session_token";
