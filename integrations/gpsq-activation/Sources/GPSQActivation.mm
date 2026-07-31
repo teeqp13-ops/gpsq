@@ -14,6 +14,7 @@ static NSString *const GPDeviceDefaultsKey = @"GPSQDeviceIdentifier";
 static NSString *const GPActivationCompletedNotification = @"GPSQActivationCompleted";
 static NSString *const GPChooseLocationNotification = @"GPSQChooseLocation";
 static NSString *const GPShowActivationNotification = @"GPSQShowActivation";
+static NSString *const GPResetActivationNotification = @"GPSQResetActivation";
 static NSString *const GPOpenModernPanelNotification = @"GPSQOpenModernPanel";
 
 static UIColor *GPColor(NSUInteger hex) {
@@ -470,7 +471,10 @@ static __weak GPSQActivationViewController *GPCurrentController;
 
 - (NSString *)messageForResponse:(NSDictionary *)json error:(NSError *)error {
     if (error) return @"تعذر الاتصال بخادم التفعيل";
-    NSString *code = [json[@"error"] isKindOfClass:NSString.class] ? json[@"error"] : @"unknown";
+    NSString *serverMessage = [json[@"message"] isKindOfClass:NSString.class] ? json[@"message"] : nil;
+    if (serverMessage.length) return serverMessage;
+    NSString *code = [json[@"error"] isKindOfClass:NSString.class] ? json[@"error"] :
+                     ([json[@"status"] isKindOfClass:NSString.class] ? json[@"status"] : @"unknown");
     NSDictionary *messages = @{
         @"invalid_code": @"كود التفعيل غير صحيح",
         @"disabled_code": @"تم إيقاف هذا الكود",
@@ -533,6 +537,16 @@ static __weak GPSQActivationViewController *GPCurrentController;
 
 @end
 
+static void GPResetActivationState(void) {
+    GPKeychainDelete(GPTokenAccount);
+    GPKeychainDelete(GPCodeAccount);
+    NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+    [defaults removeObjectForKey:@"FGLicenseCode"];
+    [defaults removeObjectForKey:@"FGLicenseToken"];
+    [defaults setBool:NO forKey:@"FGLicenseActive"];
+    [defaults synchronize];
+}
+
 static void GPPresentInterface(void) {
     dispatch_async(dispatch_get_main_queue(), ^{
         if (GPCurrentController.presentingViewController) return;
@@ -555,6 +569,19 @@ __attribute__((constructor)) static void GPSQActivationInitialize(void) {
         }];
         [NSNotificationCenter.defaultCenter addObserverForName:GPShowActivationNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(__unused NSNotification *note) {
             GPPresentInterface();
+        }];
+        [NSNotificationCenter.defaultCenter addObserverForName:GPResetActivationNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(__unused NSNotification *note) {
+            GPResetActivationState();
+            GPSQActivationViewController *current = GPCurrentController;
+            if (current.presentingViewController) {
+                [current dismissViewControllerAnimated:YES completion:^{
+                    GPCurrentController = nil;
+                    GPPresentInterface();
+                }];
+            } else {
+                GPCurrentController = nil;
+                GPPresentInterface();
+            }
         }];
     }
 }
