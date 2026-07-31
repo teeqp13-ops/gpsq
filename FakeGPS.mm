@@ -45,6 +45,10 @@ static UIImage *FGSymbol(NSString *name) {
 @property(nonatomic,assign) CLLocationCoordinate2D selectedCoordinate;
 @property(nonatomic,strong) CBCentralManager *btManager;
 @property(nonatomic,strong) NSMutableArray<CBPeripheral *> *foundDevices;
+@property(nonatomic,strong) NSUUID *savedRadarUUID;
+@property(nonatomic,copy) NSString *savedRadarName;
+@property(nonatomic,strong) CBPeripheral *savedRadarDevice;
+@property(nonatomic,assign) BOOL autoRadarEnabled;
 + (instancetype)shared;
 - (void)start;
 @end
@@ -76,6 +80,7 @@ static UIImage *FGSymbol(NSString *name) {
                                                  selector:@selector(showFloatingIconFromNotification:)
                                                      name:@"GPSQShowFloatingIcon"
                                                    object:nil];
+        [self loadRadarPlan];
         [self attachWhenReady];
     });
 }
@@ -420,11 +425,34 @@ static UIImage *FGSymbol(NSString *name) {
 }
 
 - (void)showBLEDevicesList {
-    NSMutableString *list = [NSMutableString string];
-    for (CBPeripheral *peripheral in self.foundDevices) {
-        [list appendFormat:@"%@\n", peripheral.name.length ? peripheral.name : @"جهاز غير معروف"];
+    if (self.foundDevices.count == 0) {
+        [self showMessage:@"لا توجد أجهزة مكتشفة."];
+        return;
     }
-    [self showMessage:list.length ? list : @"لا توجد أجهزة مكتشفة."];
+
+    UIViewController *controller = self.hostWindow.rootViewController;
+    while (controller.presentedViewController) controller = controller.presentedViewController;
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"أجهزة الرادار"
+                                                                   message:@"اختر جهازًا لحفظه والاتصال به تلقائيًا"
+                                                            preferredStyle:UIAlertControllerStyleActionSheet];
+
+    for (CBPeripheral *peripheral in self.foundDevices) {
+        NSString *title = peripheral.name.length ? peripheral.name : @"جهاز غير معروف";
+        if ([peripheral.identifier isEqual:self.savedRadarUUID]) {
+            title = [title stringByAppendingString:@"  ✓"];
+        }
+        [alert addAction:[UIAlertAction actionWithTitle:title style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
+            [self saveRadarPlan:peripheral];
+            [self.btManager stopScan];
+            [self.btManager connectPeripheral:peripheral options:nil];
+            [self showMessage:[NSString stringWithFormat:@"تم حفظ خطة الرادار:\n%@", self.savedRadarName]];
+        }]];
+    }
+
+    [alert addAction:[UIAlertAction actionWithTitle:@"إلغاء" style:UIAlertActionStyleCancel handler:nil]];
+    alert.popoverPresentationController.sourceView = self.menuView;
+    alert.popoverPresentationController.sourceRect = self.menuView.bounds;
+    [controller presentViewController:alert animated:YES completion:nil];
 }
 
 - (void)bluetoothSettingsTapped {
@@ -437,6 +465,13 @@ static UIImage *FGSymbol(NSString *name) {
     [alert addAction:[UIAlertAction actionWithTitle:@"مسح قائمة الأجهزة" style:UIAlertActionStyleDestructive handler:^(__unused UIAlertAction *action) {
         [self.foundDevices removeAllObjects];
     }]];
+    if (self.savedRadarUUID) {
+        NSString *savedTitle = [NSString stringWithFormat:@"حذف خطة الرادار (%@)", self.savedRadarName ?: @"جهاز محفوظ"];
+        [alert addAction:[UIAlertAction actionWithTitle:savedTitle style:UIAlertActionStyleDestructive handler:^(__unused UIAlertAction *action) {
+            [self clearRadarPlan];
+            [self showMessage:@"تم حذف خطة الرادار المحفوظة."];
+        }]];
+    }
     [alert addAction:[UIAlertAction actionWithTitle:@"فتح إعدادات النظام" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
         NSURL *url = [NSURL URLWithString:@"App-Prefs:root=Bluetooth"];
         if (url && [UIApplication.sharedApplication canOpenURL:url]) {
@@ -453,11 +488,67 @@ static UIImage *FGSymbol(NSString *name) {
     BOOL poweredOn = central.state == CBManagerStatePoweredOn;
     [FGDefaults() setBool:poweredOn forKey:FGBluetoothEnabled];
     [FGDefaults() synchronize];
+
+    if (poweredOn && self.autoRadarEnabled && self.savedRadarUUID) {
+        [self.foundDevices removeAllObjects];
+        [central scanForPeripheralsWithServices:nil options:@{CBCentralManagerScanOptionAllowDuplicatesKey:@NO}];
+    }
 }
 
 - (void)centralManager:(CBCentralManager *)central didDiscoverPeripheral:(CBPeripheral *)peripheral advertisementData:(NSDictionary<NSString *,id> *)advertisementData RSSI:(NSNumber *)RSSI {
     if (!self.foundDevices) self.foundDevices = [NSMutableArray array];
     if (![self.foundDevices containsObject:peripheral]) [self.foundDevices addObject:peripheral];
+
+    if (self.autoRadarEnabled &&
+        self.savedRadarUUID &&
+        [peripheral.identifier isEqual:self.savedRadarUUID] &&
+        self.savedRadarDevice != peripheral) {
+        self.savedRadarDevice = peripheral;
+        [central stopScan];
+        [central connectPeripheral:peripheral options:nil];
+    }
+}
+
+- (void)saveRadarPlan:(CBPeripheral *)device {
+    if (!device.identifier) return;
+
+    self.savedRadarUUID = device.identifier;
+    self.savedRadarName = device.name.length ? device.name : @"جهاز غير معروف";
+    self.savedRadarDevice = device;
+    self.autoRadarEnabled = YES;
+
+    NSUserDefaults *defaults = FGDefaults();
+    [defaults setObject:device.identifier.UUIDString forKey:@"radar_uuid"];
+    [defaults setObject:self.savedRadarName forKey:@"radar_name"];
+    [defaults setBool:YES forKey:@"radar_auto_enabled"];
+    [defaults synchronize];
+}
+
+- (void)loadRadarPlan {
+    NSUserDefaults *defaults = FGDefaults();
+    NSString *uuidString = [defaults stringForKey:@"radar_uuid"];
+    NSString *name = [defaults stringForKey:@"radar_name"];
+
+    NSUUID *uuid = uuidString.length ? [[NSUUID alloc] initWithUUIDString:uuidString] : nil;
+    if (uuid) {
+        self.savedRadarUUID = uuid;
+        self.savedRadarName = name.length ? name : @"جهاز محفوظ";
+        self.autoRadarEnabled = [defaults objectForKey:@"radar_auto_enabled"] ?
+                                [defaults boolForKey:@"radar_auto_enabled"] : YES;
+    }
+}
+
+- (void)clearRadarPlan {
+    self.autoRadarEnabled = NO;
+    self.savedRadarUUID = nil;
+    self.savedRadarName = nil;
+    self.savedRadarDevice = nil;
+
+    NSUserDefaults *defaults = FGDefaults();
+    [defaults removeObjectForKey:@"radar_uuid"];
+    [defaults removeObjectForKey:@"radar_name"];
+    [defaults removeObjectForKey:@"radar_auto_enabled"];
+    [defaults synchronize];
 }
 
 - (void)addFavorite {
