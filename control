@@ -1,8 +1,8 @@
 Package: com.khalid.fakegps
-Name: FAKE GPS
-Version: 2.0.1
+Name: Wolf GPS V17
+Version: 17.0.0
 Architecture: iphoneos-arm
-Description: Rootless FAKE GPS tweak with map selection, activation, favorites, history, shared location engine, and Arabic resources.
+Description: Wolf GPS V17 rootless tweak with map selection, activation, favorites, history, shared location engine, and Arabic resources.
 Maintainer: Khalid
 Author: Khalid
 Section: Tweaks
