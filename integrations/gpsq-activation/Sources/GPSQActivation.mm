@@ -6,6 +6,7 @@
 
 static NSString *const GPAPIBase = @"https://key.p3nd.fun/activation/api";
 static NSString *const GPProjectKey = @"gpsq";
+static NSString *const GPClientVersion = @"17.0.0";
 static NSString *const GPKeychainService = @"com.wolfox.gpsq.activation";
 static NSString *const GPTokenAccount = @"session_token";
 static NSString *const GPCodeAccount = @"license_code";
@@ -357,7 +358,7 @@ static __weak GPSQActivationViewController *GPCurrentController;
         @"license_code": code,
         @"device_id": GPDeviceIdentifier(),
         @"bundle_id": NSBundle.mainBundle.bundleIdentifier ?: @"unknown",
-        @"app_version": [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @"1.0",
+        @"app_version": GPClientVersion,
         @"platform": @"ios"
     };
     [self postEndpoint:@"activate.php" payload:payload completion:^(NSDictionary *json, NSInteger statusCode, NSError *error) {
@@ -386,9 +387,12 @@ static __weak GPSQActivationViewController *GPCurrentController;
                                                                                   message:@"تم قبول الكود وربط الجهاز بنجاح."
                                                                            preferredStyle:UIAlertControllerStyleAlert];
             [successAlert addAction:[UIAlertAction actionWithTitle:@"دخول" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
-                [self dismissViewControllerAnimated:YES completion:^{
+                UIViewController *presenter = self.presentingViewController;
+                void (^openPanel)(void) = ^{
                     [NSNotificationCenter.defaultCenter postNotificationName:GPOpenModernPanelNotification object:nil];
-                }];
+                };
+                if (presenter) [presenter dismissViewControllerAnimated:YES completion:openPanel];
+                else [self dismissViewControllerAnimated:YES completion:openPanel];
             }]];
             [self presentViewController:successAlert animated:YES completion:nil];
         });
