@@ -29,6 +29,37 @@ static void FGSetSimulationEnabled(BOOL enabled) {
     CFPreferencesAppSynchronize(FGSharedDomain);
 }
 
+static BOOL FGExtractCoordinatesFromText(NSString *text, CLLocationCoordinate2D *coordinate) {
+    if (text.length == 0 || !coordinate) return NO;
+
+    NSString *decoded = [text stringByRemovingPercentEncoding] ?: text;
+    decoded = [decoded stringByReplacingOccurrencesOfString:@"،" withString:@","];
+
+    NSError *error = nil;
+    NSRegularExpression *regex = [NSRegularExpression regularExpressionWithPattern:@"(-?[0-9]{1,2}(?:\\.[0-9]+)?)[,\\s]+(-?[0-9]{1,3}(?:\\.[0-9]+)?)"
+                                                                           options:0
+                                                                             error:&error];
+    if (error) return NO;
+
+    NSTextCheckingResult *match = [regex firstMatchInString:decoded options:0 range:NSMakeRange(0, decoded.length)];
+    if (!match || match.numberOfRanges < 3) return NO;
+
+    double latitude = [[decoded substringWithRange:[match rangeAtIndex:1]] doubleValue];
+    double longitude = [[decoded substringWithRange:[match rangeAtIndex:2]] doubleValue];
+    if (!CLLocationCoordinate2DIsValid(CLLocationCoordinate2DMake(latitude, longitude))) return NO;
+
+    *coordinate = CLLocationCoordinate2DMake(latitude, longitude);
+    return YES;
+}
+
+static BOOL FGLooksLikeSharedMapLink(NSString *text) {
+    NSString *lower = text.lowercaseString;
+    return [lower hasPrefix:@"http://"] || [lower hasPrefix:@"https://"] ||
+           [lower containsString:@"maps.app.goo.gl"] ||
+           [lower containsString:@"maps.apple.com"] ||
+           [lower containsString:@"google.com/maps"];
+}
+
 static NSString *FGCurrentDeviceIdentifier(void) {
     NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
     NSString *saved = [defaults stringForKey:FGDeviceIdentifierKey];
@@ -779,11 +810,58 @@ static UIImage *FGSymbol(NSString *name) {
     previous = current;
 }
 
+- (void)resolveSharedMapLink:(NSString *)linkText {
+    NSString *trimmed = [linkText stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    NSURL *url = [NSURL URLWithString:trimmed];
+    if (!url) {
+        [self showMessage:@"رابط الخريطة غير صالح."];
+        return;
+    }
+
+    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url
+                                                           cachePolicy:NSURLRequestReloadIgnoringLocalCacheData
+                                                       timeoutInterval:15.0];
+    request.HTTPMethod = @"GET";
+
+    [[NSURLSession.sharedSession dataTaskWithRequest:request completionHandler:^(__unused NSData *data, NSURLResponse *response, NSError *error) {
+        NSString *resolved = response.URL.absoluteString ?: trimmed;
+        CLLocationCoordinate2D coordinate;
+        BOOL found = !error && FGExtractCoordinatesFromText(resolved, &coordinate);
+
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (found) {
+                [self.mapView setRegion:MKCoordinateRegionMakeWithDistance(coordinate, 900, 900) animated:YES];
+                [self selectCoordinate:coordinate];
+                return;
+            }
+
+            NSString *lower = trimmed.lowercaseString;
+            if ([lower containsString:@"google"] || [lower containsString:@"goo.gl"]) {
+                [self openGoogleMapsForQuery:trimmed];
+            } else {
+                [self showMessage:@"تعذر استخراج الإحداثيات من الرابط. افتح الرابط ثم انسخ الإحداثية الظاهرة."];
+            }
+        });
+    }] resume];
+}
+
 - (void)searchBarSearchButtonClicked:(UISearchBar *)searchBar {
     [searchBar resignFirstResponder];
     NSString *query = [searchBar.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
     if (query.length == 0) return;
     self.lastMapQuery = query;
+
+    CLLocationCoordinate2D pastedCoordinate;
+    if (FGExtractCoordinatesFromText(query, &pastedCoordinate)) {
+        [self.mapView setRegion:MKCoordinateRegionMakeWithDistance(pastedCoordinate, 900, 900) animated:YES];
+        [self selectCoordinate:pastedCoordinate];
+        return;
+    }
+
+    if (FGLooksLikeSharedMapLink(query)) {
+        [self resolveSharedMapLink:query];
+        return;
+    }
 
     if (self.mapProviderControl.selectedSegmentIndex == 1 || [query containsString:@"+"]) {
         [self openGoogleMapsForQuery:query];
