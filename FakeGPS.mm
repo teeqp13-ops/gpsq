@@ -271,7 +271,7 @@ static UIImage *FGSymbol(NSString *name) {
     [panel addSubview:close];
 
     UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(70, top, panel.bounds.size.width - 140, 44)];
-    title.text = @"Wolf GPS V17";
+    title.text = @"Wolf GPS V17 — المنيو";
     title.textColor = UIColor.whiteColor;
     title.font = [UIFont systemFontOfSize:22 weight:UIFontWeightBold];
     title.textAlignment = NSTextAlignmentCenter;
@@ -282,7 +282,7 @@ static UIImage *FGSymbol(NSString *name) {
                                  action:@selector(openSelectedLocationInAppleMaps)];
     [panel addSubview:mapPin];
 
-    UISearchBar *search = [[UISearchBar alloc] initWithFrame:CGRectMake(14, 98, panel.bounds.size.width - 28, 48)];
+    UISearchBar *search = [[UISearchBar alloc] initWithFrame:CGRectMake(14, 142, panel.bounds.size.width - 28, 48)];
     search.placeholder = @"ابحث بإحداثية أو رمز مختصر أو عنوان";
     search.searchBarStyle = UISearchBarStyleMinimal;
     search.delegate = self;
@@ -290,7 +290,7 @@ static UIImage *FGSymbol(NSString *name) {
     [panel addSubview:search];
 
     UISegmentedControl *mapType = [[UISegmentedControl alloc] initWithItems:@[@"Apple Maps", @"Google Maps", @"قمر صناعي"]];
-    mapType.frame = CGRectMake(14, 150, panel.bounds.size.width - 28, 40);
+    mapType.frame = CGRectMake(14, 98, panel.bounds.size.width - 28, 40);
     mapType.selectedSegmentIndex = 0;
     [mapType addTarget:self action:@selector(changeMapProvider:) forControlEvents:UIControlEventValueChanged];
     self.mapProviderControl = mapType;
