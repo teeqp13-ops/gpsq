@@ -338,28 +338,31 @@ static UIImage *FGSymbol(NSString *name) {
 
     UIButton *searchButton = [self cardButton:@"بحث بإحداثية أو رابط أو عنوان"
                                        symbol:@"magnifyingglass"
-                                        frame:CGRectMake(14, y, CGRectGetWidth(panel.bounds) - 28, 52)
+                                        frame:CGRectMake(14, y, CGRectGetWidth(panel.bounds) - 28, 44)
                                        action:@selector(showMapSearch)];
     searchButton.backgroundColor = FGColor(37, 39, 45);
     searchButton.contentHorizontalAlignment = UIControlContentHorizontalAlignmentCenter;
     [controls addSubview:searchButton];
-    y += 60;
+    y += 50;
 
-    UIButton *toggle = [self cardButton:@"تفعيل GPS" symbol:@"location.fill" frame:CGRectMake(14, y, CGRectGetWidth(panel.bounds) - 28, 52) action:@selector(toggleGPS:)];
+    UIButton *toggle = [self cardButton:@"تفعيل GPS" symbol:@"location.fill" frame:CGRectMake(14, y, width, 44) action:@selector(toggleGPS:)];
     toggle.backgroundColor = FGColor(33, 166, 92);
-    toggle.contentHorizontalAlignment = UIControlContentHorizontalAlignmentCenter;
     self.gpsToggleButton = toggle;
+
+    UIButton *favorites = [self cardButton:@"المفضلة" symbol:@"star.fill" frame:CGRectMake(22 + width, y, width, 44) action:@selector(favoritesMenuTapped)];
+    favorites.backgroundColor = FGColor(148, 76, 220);
     [controls addSubview:toggle];
-    y += 60;
+    [controls addSubview:favorites];
+    y += 50;
 
     UIButton *settingsAndFunctions = [self cardButton:@"الإعدادات والوظائف"
                                                symbol:@"slider.horizontal.3"
-                                                frame:CGRectMake(14, y, CGRectGetWidth(panel.bounds) - 28, 52)
+                                                frame:CGRectMake(14, y, CGRectGetWidth(panel.bounds) - 28, 44)
                                                action:@selector(openSettingsAndFunctions)];
     settingsAndFunctions.backgroundColor = FGColor(25, 103, 210);
     settingsAndFunctions.contentHorizontalAlignment = UIControlContentHorizontalAlignmentCenter;
     [controls addSubview:settingsAndFunctions];
-    y += 60;
+    y += 50;
 
     UILabel *coord = [[UILabel alloc] initWithFrame:CGRectMake(14, y, CGRectGetWidth(panel.bounds) - 28, 40)];
     coord.text = @"24.713600, 46.675300";
@@ -373,11 +376,11 @@ static UIImage *FGSymbol(NSString *name) {
     [controls addSubview:coord];
     y += 48;
 
-    UIButton *choose = [self cardButton:@"اختر هذا الموقع" symbol:@"mappin.and.ellipse" frame:CGRectMake(14, y, CGRectGetWidth(panel.bounds) - 28, 52) action:@selector(chooseCurrentLocation)];
+    UIButton *choose = [self cardButton:@"اختر هذا الموقع" symbol:@"mappin.and.ellipse" frame:CGRectMake(14, y, CGRectGetWidth(panel.bounds) - 28, 44) action:@selector(chooseCurrentLocation)];
     choose.backgroundColor = FGColor(30, 105, 232);
     choose.contentHorizontalAlignment = UIControlContentHorizontalAlignmentCenter;
     [controls addSubview:choose];
-    y += 62;
+    y += 52;
 
     controls.contentSize = CGSizeMake(CGRectGetWidth(panel.bounds), y);
 
@@ -389,7 +392,7 @@ static UIImage *FGSymbol(NSString *name) {
     BOOL enabled = FGSimulationEnabled();
     self.statusLabel.text = enabled ? @"● GPS متصل — تغيير الموقع نشط" : @"● GPS جاهز — تغيير الموقع متوقف";
     self.statusLabel.textColor = enabled ? FGColor(52, 211, 117) : FGColor(248, 184, 61);
-    [self.gpsToggleButton setTitle:(enabled ? @"إيقاف تغيير الموقع" : @"تفعيل تغيير الموقع") forState:UIControlStateNormal];
+    [self.gpsToggleButton setTitle:(enabled ? @"إيقاف GPS" : @"تفعيل GPS") forState:UIControlStateNormal];
 }
 
 - (void)changeMapProvider:(UISegmentedControl *)sender {
@@ -457,6 +460,32 @@ static UIImage *FGSymbol(NSString *name) {
         temporarySearch.text = alert.textFields.firstObject.text;
         [self searchBarSearchButtonClicked:temporarySearch];
     }]];
+    [controller presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)favoritesMenuTapped {
+    UIViewController *controller = self.hostWindow.rootViewController;
+    while (controller.presentedViewController) controller = controller.presentedViewController;
+
+    NSArray *favorites = [FGDefaults() arrayForKey:FGFavorites] ?: @[];
+    NSString *message = [NSString stringWithFormat:@"المواقع المحفوظة: %lu", (unsigned long)favorites.count];
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"المفضلة"
+                                                                   message:message
+                                                            preferredStyle:UIAlertControllerStyleActionSheet];
+    [alert addAction:[UIAlertAction actionWithTitle:@"حفظ الموقع الحالي" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
+        [self saveCurrentLocation];
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"عرض المواقع المحفوظة" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
+        [self showFavorites];
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"حذف جميع المفضلة" style:UIAlertActionStyleDestructive handler:^(__unused UIAlertAction *action) {
+        [FGDefaults() removeObjectForKey:FGFavorites];
+        [FGDefaults() synchronize];
+        [self showMessage:@"تم حذف جميع المواقع المحفوظة."];
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"رجوع" style:UIAlertActionStyleCancel handler:nil]];
+    alert.popoverPresentationController.sourceView = self.menuView;
+    alert.popoverPresentationController.sourceRect = self.menuView.bounds;
     [controller presentViewController:alert animated:YES completion:nil];
 }
 
