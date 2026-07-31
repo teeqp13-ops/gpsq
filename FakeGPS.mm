@@ -90,7 +90,11 @@ static UIImage *FGSymbol(NSString *name) {
 @property(nonatomic,strong) UIButton *gpsToggleButton;
 @property(nonatomic,strong) UITextField *manualIDField;
 @property(nonatomic,strong) UISegmentedControl *mapProviderControl;
+@property(nonatomic,strong) UIButton *mapExpandButton;
 @property(nonatomic,copy) NSString *lastMapQuery;
+@property(nonatomic,assign) CGRect collapsedMapFrame;
+@property(nonatomic,assign) NSInteger mapOriginalIndex;
+@property(nonatomic,assign) BOOL mapExpanded;
 @property(nonatomic,weak) UIWindow *hostWindow;
 @property(nonatomic,assign) NSInteger retryCount;
 @property(nonatomic,assign) NSInteger volumeCount;
@@ -274,21 +278,16 @@ static UIImage *FGSymbol(NSString *name) {
     [panel addSubview:close];
 
     UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(70, top, panel.bounds.size.width - 140, 44)];
-    title.text = @"Wolf GPS V17 — المنيو";
+    title.text = @"Fake GPS";
     title.textColor = UIColor.whiteColor;
     title.font = [UIFont systemFontOfSize:22 weight:UIFontWeightBold];
     title.textAlignment = NSTextAlignmentCenter;
     [panel addSubview:title];
 
-    UIButton *mapPin = [self iconButton:@"map.fill"
-                                  frame:CGRectMake(panel.bounds.size.width - 60, top, 44, 44)
-                                 action:@selector(openSelectedLocationInAppleMaps)];
-    [panel addSubview:mapPin];
-
-    UISegmentedControl *mapType = [[UISegmentedControl alloc] initWithItems:@[@"Apple Maps", @"Google Maps", @"قمر صناعي"]];
+    UISegmentedControl *mapType = [[UISegmentedControl alloc] initWithItems:@[@"قمر صناعي", @"مختلط"]];
     mapType.frame = CGRectMake(14, 98, panel.bounds.size.width - 28, 40);
     mapType.selectedSegmentIndex = 0;
-    [mapType addTarget:self action:@selector(changeMapProvider:) forControlEvents:UIControlEventValueChanged];
+    [mapType addTarget:self action:@selector(changeMapStyle:) forControlEvents:UIControlEventValueChanged];
     self.mapProviderControl = mapType;
     [panel addSubview:mapType];
 
@@ -298,9 +297,12 @@ static UIImage *FGSymbol(NSString *name) {
     map.layer.masksToBounds = YES;
     map.delegate = self;
     map.showsUserLocation = YES;
-    map.mapType = MKMapTypeStandard;
+    map.mapType = MKMapTypeSatellite;
     self.mapView = map;
     [panel addSubview:map];
+    self.collapsedMapFrame = map.frame;
+    self.mapOriginalIndex = [panel.subviews indexOfObject:map];
+    self.mapExpanded = NO;
 
     self.selectedCoordinate = CLLocationCoordinate2DMake(24.7136, 46.6753);
     [map setRegion:MKCoordinateRegionMakeWithDistance(self.selectedCoordinate, 1100, 1100) animated:NO];
@@ -324,6 +326,15 @@ static UIImage *FGSymbol(NSString *name) {
     pinButton.tintColor = FGColor(232, 56, 62);
     pinButton.autoresizingMask = UIViewAutoresizingFlexibleTopMargin | UIViewAutoresizingFlexibleRightMargin;
     [map addSubview:pinButton];
+
+    UIButton *expandButton = [self iconButton:@"arrow.up.left.and.arrow.down.right"
+                                        frame:CGRectMake(map.bounds.size.width - 56, 12, 44, 44)
+                                       action:@selector(toggleMapExpansion)];
+    expandButton.backgroundColor = [UIColor.whiteColor colorWithAlphaComponent:0.94];
+    expandButton.tintColor = FGColor(30, 105, 232);
+    expandButton.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleBottomMargin;
+    self.mapExpandButton = expandButton;
+    [map addSubview:expandButton];
 
     CGFloat controlsY = CGRectGetMaxY(map.frame) + 8;
     CGFloat availableHeight = CGRectGetHeight(panel.bounds) - controlsY - MAX(self.hostWindow.safeAreaInsets.bottom, 8);
@@ -395,33 +406,33 @@ static UIImage *FGSymbol(NSString *name) {
     [self.gpsToggleButton setTitle:(enabled ? @"إيقاف GPS" : @"تفعيل GPS") forState:UIControlStateNormal];
 }
 
-- (void)changeMapProvider:(UISegmentedControl *)sender {
-    if (sender.selectedSegmentIndex == 2) {
-        self.mapView.mapType = MKMapTypeSatellite;
-        return;
-    }
-
-    self.mapView.mapType = MKMapTypeStandard;
-    if (sender.selectedSegmentIndex == 1) {
-        NSString *query = self.lastMapQuery.length ? self.lastMapQuery :
-            [NSString stringWithFormat:@"%.6f,%.6f", self.selectedCoordinate.latitude, self.selectedCoordinate.longitude];
-        [self openGoogleMapsForQuery:query];
-    }
+- (void)changeMapStyle:(UISegmentedControl *)sender {
+    self.mapView.mapType = sender.selectedSegmentIndex == 1 ? MKMapTypeHybrid : MKMapTypeSatellite;
 }
 
-- (void)openGoogleMapsForQuery:(NSString *)query {
-    NSString *value = query.length ? query :
-        [NSString stringWithFormat:@"%.6f,%.6f", self.selectedCoordinate.latitude, self.selectedCoordinate.longitude];
-    NSString *encoded = [value stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.URLQueryAllowedCharacterSet];
-    NSURL *url = [NSURL URLWithString:[NSString stringWithFormat:@"https://www.google.com/maps/search/?api=1&query=%@", encoded ?: @""]];
-    if (url) [UIApplication.sharedApplication openURL:url options:@{} completionHandler:nil];
-}
+- (void)toggleMapExpansion {
+    UIView *panel = self.menuView;
+    if (!panel || !self.mapView) return;
 
-- (void)openSelectedLocationInAppleMaps {
-    NSString *urlString = [NSString stringWithFormat:@"http://maps.apple.com/?ll=%.6f,%.6f&q=Wolf%%20GPS",
-                           self.selectedCoordinate.latitude, self.selectedCoordinate.longitude];
-    NSURL *url = [NSURL URLWithString:urlString];
-    if (url) [UIApplication.sharedApplication openURL:url options:@{} completionHandler:nil];
+    self.mapExpanded = !self.mapExpanded;
+    if (self.mapExpanded) {
+        self.collapsedMapFrame = self.mapView.frame;
+        self.mapOriginalIndex = [panel.subviews indexOfObject:self.mapView];
+        [panel bringSubviewToFront:self.mapView];
+        [UIView animateWithDuration:0.28 animations:^{
+            self.mapView.frame = panel.bounds;
+            self.mapView.layer.cornerRadius = 0;
+        }];
+        [self.mapExpandButton setImage:FGSymbol(@"arrow.down.right.and.arrow.up.left") forState:UIControlStateNormal];
+    } else {
+        NSInteger safeIndex = MAX(0, MIN(self.mapOriginalIndex, (NSInteger)panel.subviews.count));
+        [panel insertSubview:self.mapView atIndex:(NSUInteger)safeIndex];
+        [UIView animateWithDuration:0.28 animations:^{
+            self.mapView.frame = self.collapsedMapFrame;
+            self.mapView.layer.cornerRadius = 22;
+        }];
+        [self.mapExpandButton setImage:FGSymbol(@"arrow.up.left.and.arrow.down.right") forState:UIControlStateNormal];
+    }
 }
 
 - (void)chooseCurrentLocation {
@@ -1029,12 +1040,7 @@ static UIImage *FGSymbol(NSString *name) {
                 return;
             }
 
-            NSString *lower = trimmed.lowercaseString;
-            if ([lower containsString:@"google"] || [lower containsString:@"goo.gl"]) {
-                [self openGoogleMapsForQuery:trimmed];
-            } else {
-                [self showMessage:@"تعذر استخراج الإحداثيات من الرابط. افتح الرابط ثم انسخ الإحداثية الظاهرة."];
-            }
+            [self showMessage:@"تعذر استخراج الإحداثيات من الرابط. انسخ الإحداثية أو اكتب العنوان مباشرة."];
         });
     }] resume];
 }
@@ -1054,11 +1060,6 @@ static UIImage *FGSymbol(NSString *name) {
 
     if (FGLooksLikeSharedMapLink(query)) {
         [self resolveSharedMapLink:query];
-        return;
-    }
-
-    if (self.mapProviderControl.selectedSegmentIndex == 1 || [query containsString:@"+"]) {
-        [self openGoogleMapsForQuery:query];
         return;
     }
 
