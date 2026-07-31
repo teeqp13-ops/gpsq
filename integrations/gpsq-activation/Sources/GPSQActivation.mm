@@ -12,7 +12,6 @@ static NSString *const GPTokenAccount = @"session_token";
 static NSString *const GPCodeAccount = @"license_code";
 static NSString *const GPDeviceDefaultsKey = @"GPSQDeviceIdentifier";
 static NSString *const GPActivationCompletedNotification = @"GPSQActivationCompleted";
-static NSString *const GPChooseLocationNotification = @"GPSQChooseLocation";
 static NSString *const GPShowActivationNotification = @"GPSQShowActivation";
 static NSString *const GPResetActivationNotification = @"GPSQResetActivation";
 static NSString *const GPOpenModernPanelNotification = @"GPSQOpenModernPanel";
@@ -90,13 +89,11 @@ static UIWindow *GPForegroundWindow(void) {
     return UIApplication.sharedApplication.keyWindow;
 }
 
-@interface GPSQActivationViewController : UIViewController <UITextFieldDelegate, MKMapViewDelegate>
+@interface GPSQActivationViewController : UIViewController <UITextFieldDelegate>
 @property(nonatomic, strong) UIView *activationView;
-@property(nonatomic, strong) UIView *featuresView;
 @property(nonatomic, strong) UITextField *codeField;
 @property(nonatomic, strong) UILabel *statusLabel;
 @property(nonatomic, strong) UIButton *activateButton;
-@property(nonatomic, strong) MKMapView *mapView;
 @property(nonatomic, assign) BOOL initialCheckCompleted;
 @end
 
@@ -109,7 +106,6 @@ static __weak GPSQActivationViewController *GPCurrentController;
     self.view.backgroundColor = GPColor(0x070B18);
     self.modalPresentationStyle = UIModalPresentationFullScreen;
     [self buildActivationInterface];
-    [self buildFeaturesInterface];
     [self showActivationAnimated:NO];
 }
 
@@ -231,106 +227,12 @@ static __weak GPSQActivationViewController *GPCurrentController;
     [lock.centerXAnchor constraintEqualToAnchor:stack.centerXAnchor].active = YES;
 }
 
-- (void)buildFeaturesInterface {
-    UIView *container = [UIView new];
-    container.translatesAutoresizingMaskIntoConstraints = NO;
-    [self.view addSubview:container];
-    [NSLayoutConstraint activateConstraints:@[
-        [container.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor],
-        [container.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
-        [container.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
-        [container.bottomAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.bottomAnchor]
-    ]];
-    self.featuresView = container;
-
-    UILabel *header = [self labelWithText:@"Wolf GPS V17" size:17 weight:UIFontWeightHeavy color:UIColor.whiteColor];
-    header.translatesAutoresizingMaskIntoConstraints = NO;
-
-    self.mapView = [MKMapView new];
-    self.mapView.mapType = MKMapTypeHybrid;
-    self.mapView.delegate = self;
-    self.mapView.layer.cornerRadius = 17;
-    self.mapView.clipsToBounds = YES;
-    self.mapView.translatesAutoresizingMaskIntoConstraints = NO;
-    CLLocationCoordinate2D riyadh = CLLocationCoordinate2DMake(24.7136, 46.6753);
-    [self.mapView setRegion:MKCoordinateRegionMakeWithDistance(riyadh, 3500, 3500) animated:NO];
-
-    UIButton *search = [self buttonWithTitle:@"بحث عن موقع" color:GPColor(0x202943) action:@selector(searchTapped)];
-    UIButton *favorites = [self buttonWithTitle:@"المفضلة" color:GPColor(0x7B5CFF) action:@selector(favoritesTapped)];
-    UIStackView *topButtons = [[UIStackView alloc] initWithArrangedSubviews:@[search, favorites]];
-    topButtons.axis = UILayoutConstraintAxisHorizontal;
-    topButtons.distribution = UIStackViewDistributionFillEqually;
-    topButtons.spacing = 10;
-
-    UISwitch *locationSwitch = [UISwitch new];
-    locationSwitch.on = [NSUserDefaults.standardUserDefaults boolForKey:@"GPSQLocationEnabled"];
-    [locationSwitch addTarget:self action:@selector(locationSwitchChanged:) forControlEvents:UIControlEventValueChanged];
-    UIView *locationRow = [self toggleRow:@"تفعيل تغيير الموقع" control:locationSwitch];
-
-    UISwitch *movementSwitch = [UISwitch new];
-    movementSwitch.on = [NSUserDefaults.standardUserDefaults boolForKey:@"GPSQMovementEnabled"];
-    [movementSwitch addTarget:self action:@selector(movementSwitchChanged:) forControlEvents:UIControlEventValueChanged];
-    UIView *movementRow = [self toggleRow:@"تفعيل الحركة للموقع" control:movementSwitch];
-
-    UIButton *beacons = [self buttonWithTitle:@"إدارة البلوتوث والـ Beacons" color:GPColor(0x17B6C4) action:@selector(beaconsTapped)];
-    UIButton *choose = [self buttonWithTitle:@"اختر هذا الموقع" color:GPColor(0xC9A227) action:@selector(chooseLocationTapped)];
-    [choose setTitleColor:GPColor(0x070B18) forState:UIControlStateNormal];
-    UIButton *close = [self buttonWithTitle:@"إخفاء الواجهة" color:GPColor(0xD94A55) action:@selector(closeTapped)];
-
-    UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[header, self.mapView, topButtons, locationRow, movementRow, beacons, choose, close]];
-    stack.axis = UILayoutConstraintAxisVertical;
-    stack.spacing = 10;
-    stack.translatesAutoresizingMaskIntoConstraints = NO;
-    [container addSubview:stack];
-    [NSLayoutConstraint activateConstraints:@[
-        [stack.topAnchor constraintEqualToAnchor:container.topAnchor constant:14],
-        [stack.leadingAnchor constraintEqualToAnchor:container.leadingAnchor constant:16],
-        [stack.trailingAnchor constraintEqualToAnchor:container.trailingAnchor constant:-16],
-        [stack.bottomAnchor constraintLessThanOrEqualToAnchor:container.bottomAnchor constant:-12],
-        [self.mapView.heightAnchor constraintEqualToConstant:230]
-    ]];
-}
-
-- (UIView *)toggleRow:(NSString *)title control:(UISwitch *)control {
-    UIView *row = [UIView new];
-    row.backgroundColor = GPColor(0x0E142B);
-    row.layer.cornerRadius = 12;
-    row.translatesAutoresizingMaskIntoConstraints = NO;
-    [row.heightAnchor constraintEqualToConstant:48].active = YES;
-
-    UILabel *label = [self labelWithText:title size:13 weight:UIFontWeightBold color:UIColor.whiteColor];
-    label.textAlignment = NSTextAlignmentRight;
-    label.translatesAutoresizingMaskIntoConstraints = NO;
-    control.translatesAutoresizingMaskIntoConstraints = NO;
-    [row addSubview:label];
-    [row addSubview:control];
-    [NSLayoutConstraint activateConstraints:@[
-        [label.leadingAnchor constraintEqualToAnchor:row.leadingAnchor constant:14],
-        [label.centerYAnchor constraintEqualToAnchor:row.centerYAnchor],
-        [control.trailingAnchor constraintEqualToAnchor:row.trailingAnchor constant:-14],
-        [control.centerYAnchor constraintEqualToAnchor:row.centerYAnchor]
-    ]];
-    return row;
-}
-
 - (void)showActivationAnimated:(BOOL)animated {
     void (^changes)(void) = ^{
         self.activationView.alpha = 1;
         self.activationView.hidden = NO;
-        self.featuresView.alpha = 0;
-        self.featuresView.hidden = YES;
     };
     animated ? [UIView animateWithDuration:0.25 animations:changes] : changes();
-}
-
-- (void)showFeaturesAnimated:(BOOL)animated {
-    void (^changes)(void) = ^{
-        self.activationView.alpha = 0;
-        self.activationView.hidden = YES;
-        self.featuresView.alpha = 1;
-        self.featuresView.hidden = NO;
-    };
-    animated ? [UIView animateWithDuration:0.3 animations:changes] : changes();
 }
 
 - (void)setBusy:(BOOL)busy text:(NSString *)text {
@@ -495,45 +397,6 @@ static __weak GPSQActivationViewController *GPCurrentController;
     return next.length <= 20 && [string rangeOfCharacterFromSet:invalid].location == NSNotFound;
 }
 
-- (void)searchTapped {
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"بحث عن موقع" message:nil preferredStyle:UIAlertControllerStyleAlert];
-    [alert addTextFieldWithConfigurationHandler:^(UITextField *field) { field.placeholder = @"المدينة أو المكان"; }];
-    [alert addAction:[UIAlertAction actionWithTitle:@"إلغاء" style:UIAlertActionStyleCancel handler:nil]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"بحث" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
-        NSString *query = alert.textFields.firstObject.text;
-        if (query.length == 0) return;
-        MKLocalSearchRequest *request = [MKLocalSearchRequest new];
-        request.naturalLanguageQuery = query;
-        [[[MKLocalSearch alloc] initWithRequest:request] startWithCompletionHandler:^(MKLocalSearchResponse *response, NSError *error) {
-            MKMapItem *item = response.mapItems.firstObject;
-            if (!item) return;
-            dispatch_async(dispatch_get_main_queue(), ^{
-                [self.mapView setRegion:MKCoordinateRegionMakeWithDistance(item.placemark.coordinate, 2500, 2500) animated:YES];
-            });
-        }];
-    }]];
-    [self presentViewController:alert animated:YES completion:nil];
-}
-
-- (void)favoritesTapped { [self showInfo:@"المفضلة" message:@"يمكن ربط هذه الصفحة بمخزن المواقع المحفوظة في المرحلة التالية."]; }
-- (void)beaconsTapped { [self showInfo:@"Bluetooth & Beacons" message:@"تم تجهيز الزر لإرسال أمر فتح وحدة البلوتوث والـBeacons."]; }
-- (void)locationSwitchChanged:(UISwitch *)sender { [NSUserDefaults.standardUserDefaults setBool:sender.isOn forKey:@"GPSQLocationEnabled"]; }
-- (void)movementSwitchChanged:(UISwitch *)sender { [NSUserDefaults.standardUserDefaults setBool:sender.isOn forKey:@"GPSQMovementEnabled"]; }
-
-- (void)chooseLocationTapped {
-    CLLocationCoordinate2D coordinate = self.mapView.centerCoordinate;
-    NSDictionary *info = @{@"latitude": @(coordinate.latitude), @"longitude": @(coordinate.longitude)};
-    [NSNotificationCenter.defaultCenter postNotificationName:GPChooseLocationNotification object:nil userInfo:info];
-    [self showInfo:@"تم اختيار الموقع" message:[NSString stringWithFormat:@"%.6f, %.6f", coordinate.latitude, coordinate.longitude]];
-}
-
-- (void)closeTapped { [self dismissViewControllerAnimated:YES completion:nil]; }
-
-- (void)showInfo:(NSString *)title message:(NSString *)message {
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:title message:message preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:@"حسنًا" style:UIAlertActionStyleDefault handler:nil]];
-    [self presentViewController:alert animated:YES completion:nil];
-}
 
 @end
 
