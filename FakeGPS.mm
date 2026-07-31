@@ -458,7 +458,7 @@ static UIImage *FGSymbol(NSString *name) {
     while (controller.presentedViewController) controller = controller.presentedViewController;
 
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"البحث عن موقع"
-                                                                   message:@"إحداثية، رابط Apple/Google Maps، رمز مختصر، أو عنوان"
+                                                                   message:@"إحداثية، رابط خريطة، رمز مختصر، أو عنوان"
                                                             preferredStyle:UIAlertControllerStyleAlert];
     [alert addTextFieldWithConfigurationHandler:^(UITextField *field) {
         field.placeholder = @"24.7136, 46.6753";
@@ -978,7 +978,7 @@ static UIImage *FGSymbol(NSString *name) {
 - (void)showMessage:(NSString *)message {
     UIViewController *controller = self.hostWindow.rootViewController;
     while (controller.presentedViewController) controller = controller.presentedViewController;
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"GPS Pro"
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Fake GPS"
                                                                    message:message
                                                             preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"حسناً" style:UIAlertActionStyleDefault handler:nil]];
