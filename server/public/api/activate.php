@@ -20,9 +20,9 @@ $deviceName = trim((string)($input['device_name'] ?? $input['device_model'] ?? '
 $iosVersion = trim((string)($input['ios_version'] ?? ''));
 $appVersion = trim((string)($input['app_version'] ?? ''));
 
-if (!preg_match('/^[A-Z0-9-]{4,64}$/', $code) || $udid === '' || strlen($udid) > 160) {
+if (!preg_match('/^[0-9]{8,20}$/', $code) || $udid === '' || strlen($udid) > 160) {
     logActivity($code ?: null, $udid ?: null, 'activate', 'failed', 'missing_or_invalid_fields');
-    jsonResponse(['success'=>false,'status'=>'missing_fields','message'=>'الكود ومعرف الجهاز مطلوبان'], 422);
+    jsonResponse(['success'=>false,'status'=>'missing_fields','message'=>'الكود يجب أن يكون من 8 إلى 20 رقمًا ومعرف الجهاز مطلوب'], 422);
 }
 
 if (setting('maintenance', '0') === '1') {
