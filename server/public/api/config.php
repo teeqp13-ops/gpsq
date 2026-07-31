@@ -94,6 +94,26 @@ function initSchema(PDO $pdo): void
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )");
 
+    $pdo->exec("CREATE TABLE IF NOT EXISTS heartbeats (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        code TEXT NOT NULL,
+        udid TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        FOREIGN KEY(code) REFERENCES codes(code) ON DELETE CASCADE
+    )");
+
+    $pdo->exec("CREATE TABLE IF NOT EXISTS tokens (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        code TEXT NOT NULL,
+        udid TEXT NOT NULL,
+        token_hash TEXT NOT NULL UNIQUE,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        expires_at TEXT NOT NULL,
+        last_seen TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(code, udid),
+        FOREIGN KEY(code) REFERENCES codes(code) ON DELETE CASCADE
+    )");
+
     $pdo->exec("CREATE TABLE IF NOT EXISTS settings (
         name TEXT PRIMARY KEY,
         value TEXT,
@@ -103,13 +123,15 @@ function initSchema(PDO $pdo): void
     $pdo->exec("INSERT OR IGNORE INTO settings(name,value) VALUES
         ('maintenance','0'),
         ('force_update','0'),
-        ('minimum_version','17.0.0'),
+        ('minimum_version','1.0'),
         ('server_message','')");
 
     $pdo->exec('CREATE INDEX IF NOT EXISTS idx_codes_status ON codes(status)');
     $pdo->exec('CREATE INDEX IF NOT EXISTS idx_codes_expiry ON codes(expires_at)');
     $pdo->exec('CREATE INDEX IF NOT EXISTS idx_devices_code ON devices(code)');
     $pdo->exec('CREATE INDEX IF NOT EXISTS idx_logs_code ON activity_logs(code, created_at)');
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_heartbeats_device ON heartbeats(code, udid, created_at)');
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_tokens_device ON tokens(code, udid, expires_at)');
 }
 
 function jsonResponse(array $data, int $status = 200): void

@@ -37,7 +37,7 @@ if ($code === '' || $udid === '') {
 
 $db = getDB();
 
-$stmt = $db->prepare('SELECT status FROM codes WHERE code = ? AND udid = ?');
+$stmt = $db->prepare('SELECT c.status,c.expires_at FROM codes c INNER JOIN devices d ON d.code=c.code WHERE c.code=? AND d.udid=?');
 $stmt->execute([$code, $udid]);
 $row = $stmt->fetch();
 
@@ -45,7 +45,12 @@ if (!$row) {
     jsonResponse(['success' => false, 'status' => 'not_found'], 404);
 }
 
-if (in_array($row['status'], ['closed', 'expired'], true)) {
+if (!empty($row['expires_at']) && strtotime((string)$row['expires_at'] . ' UTC') <= time()) {
+    $db->prepare("UPDATE codes SET status='expired' WHERE code=?")->execute([$code]);
+    jsonResponse(['success' => false, 'status' => 'expired'], 403);
+}
+
+if (in_array($row['status'], ['closed', 'disabled', 'expired'], true)) {
     jsonResponse(['success' => false, 'status' => $row['status']], 403);
 }
 

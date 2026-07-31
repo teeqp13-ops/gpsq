@@ -26,6 +26,41 @@ document.addEventListener('click', async (e) => {
     setTimeout(() => selected.textContent = 'نسخ المحدد', 1200);
   }
 
+  const generated = e.target.closest('.copy-generated');
+  if (generated) {
+    const field = document.getElementById('generated_codes');
+    if (!field?.value) return;
+    await navigator.clipboard.writeText(field.value);
+    generated.textContent = 'تم نسخ جميع الأكواد';
+    setTimeout(() => generated.textContent = 'نسخ جميع الأكواد', 1200);
+  }
+
+  const bulk = e.target.closest('.bulk-action');
+  if (bulk) {
+    const codes = [...document.querySelectorAll('.row-check:checked')]
+      .map(i => i.dataset.code)
+      .filter(Boolean);
+    if (!codes.length) return alert('اختر أكواد أولاً');
+    const action = bulk.dataset.action || '';
+    if ((action === 'delete' || action === 'stop') &&
+        !confirm(action === 'delete' ? 'حذف الأكواد المحددة نهائيًا؟' : 'إيقاف الأكواد المحددة؟')) {
+      return;
+    }
+    const form = document.getElementById('bulk-form');
+    const actionField = document.getElementById('bulk-action-value');
+    const values = document.getElementById('bulk-code-values');
+    if (!form || !actionField || !values) return;
+    actionField.value = action;
+    values.replaceChildren(...codes.map(code => {
+      const input = document.createElement('input');
+      input.type = 'hidden';
+      input.name = 'selected_codes[]';
+      input.value = code;
+      return input;
+    }));
+    form.submit();
+  }
+
   const toggle = e.target.closest('.toggle-secret');
   if (toggle) {
     const row = toggle.closest('tr');

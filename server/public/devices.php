@@ -23,7 +23,7 @@ if ($search !== '') {
     $params = [$needle, $needle, $needle];
 }
 
-$sql .= " ORDER BY COALESCE(d.updated_at, d.created_at) DESC";
+$sql .= " ORDER BY d.last_seen DESC";
 $stmt = $db->prepare($sql);
 $stmt->execute($params);
 $devices = $stmt->fetchAll();

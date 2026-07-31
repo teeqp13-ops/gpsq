@@ -33,8 +33,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 case 'expired':
                     $result = ['ok' => false, 'status' => 'expired', 'msg' => 'انتهت صلاحية هذا الكود'];
                     break;
+                case 'disabled':
+                    $result = ['ok' => false, 'status' => 'disabled', 'msg' => 'تم تعطيل هذا الكود'];
+                    break;
                 case 'closed':
-                    $result = ['ok' => false, 'status' => 'closed',  'msg' => 'هذا الكود مغلق'];
+                    $result = ['ok' => false, 'status' => 'closed',  'msg' => 'تم إيقاف هذا الكود'];
                     break;
                 default:
                     $result = ['ok' => false, 'msg' => 'حالة الكود غير معروفة'];

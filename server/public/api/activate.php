@@ -20,9 +20,9 @@ $deviceName = trim((string)($input['device_name'] ?? $input['device_model'] ?? '
 $iosVersion = trim((string)($input['ios_version'] ?? ''));
 $appVersion = trim((string)($input['app_version'] ?? ''));
 
-if (!preg_match('/^[0-9]{8,20}$/', $code) || $udid === '' || strlen($udid) > 160) {
+if (!preg_match('/^\d{8,20}$/', $code) || $udid === '' || strlen($udid) > 160) {
     logActivity($code ?: null, $udid ?: null, 'activate', 'failed', 'missing_or_invalid_fields');
-    jsonResponse(['success'=>false,'status'=>'missing_fields','message'=>'الكود يجب أن يكون من 8 إلى 20 رقمًا ومعرف الجهاز مطلوب'], 422);
+    jsonResponse(['success'=>false,'status'=>'missing_fields','message'=>'كود رقمي من 8 إلى 20 رقمًا ومعرف الجهاز مطلوبان'], 422);
 }
 
 if (setting('maintenance', '0') === '1') {
@@ -96,6 +96,15 @@ try {
 
 $timestamp = time();
 $signature = hash_hmac('sha256', $code . '|' . $udid . '|' . $timestamp . '|active', (string)GPSQ_HMAC_SECRET);
+$token = rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '=');
+$tokenHash = hash('sha256', $token);
+$db->prepare("INSERT INTO tokens(code,udid,token_hash,expires_at)
+              VALUES(?,?,?,?)
+              ON CONFLICT(code,udid) DO UPDATE SET
+                token_hash=excluded.token_hash,
+                expires_at=excluded.expires_at,
+                last_seen=datetime('now')")
+   ->execute([$code, $udid, $tokenHash, $expiresAt]);
 $remainingDays = max(0, (int)ceil((strtotime($expiresAt . ' UTC') - time()) / 86400));
 logActivity($code, $udid, 'activate', 'success', 'active');
 
@@ -113,6 +122,7 @@ jsonResponse([
     'remaining_days'=>$remainingDays,
     'timestamp'=>$timestamp,
     'signature'=>$signature,
+    'token'=>$token,
     'maintenance'=>false,
     'force_update'=>setting('force_update','0') === '1',
     'minimum_version'=>setting('minimum_version','1.0')
