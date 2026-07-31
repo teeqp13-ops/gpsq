@@ -2,6 +2,7 @@
 #import <MapKit/MapKit.h>
 #import <CoreLocation/CoreLocation.h>
 #import <CoreBluetooth/CoreBluetooth.h>
+#import "WFGPXMovementManager.h"
 
 static NSString *const FGEnabled = @"FGEnabled";
 static NSString *const FGHidden = @"FGHidden";
@@ -105,6 +106,7 @@ static UIImage *FGSymbol(NSString *name) {
 @property(nonatomic,strong) NSUUID *savedRadarUUID;
 @property(nonatomic,copy) NSString *savedRadarName;
 @property(nonatomic,strong) CBPeripheral *savedRadarDevice;
+@property(nonatomic,strong) WFGPXMovementManager *movementManager;
 @property(nonatomic,assign) BOOL autoRadarEnabled;
 + (instancetype)shared;
 - (void)start;
@@ -500,6 +502,101 @@ static UIImage *FGSymbol(NSString *name) {
     [controller presentViewController:alert animated:YES completion:nil];
 }
 
+- (void)openLocationFunctions {
+    UIViewController *controller = self.hostWindow.rootViewController;
+    while (controller.presentedViewController) controller = controller.presentedViewController;
+
+    NSString *toggleTitle = FGSimulationEnabled() ? @"إيقاف GPS" : @"تفعيل GPS";
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"الموقع والحركة"
+                                                                   message:@"وظائف الموقع بعد التفعيل"
+                                                            preferredStyle:UIAlertControllerStyleActionSheet];
+    [alert addAction:[UIAlertAction actionWithTitle:toggleTitle style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
+        [self toggleFakeGPS];
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"اختر هذا الموقع" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
+        [self chooseCurrentLocation];
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"الحركة" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
+        [self startFakeMovement];
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"إرسال الموقع للرادار" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
+        [self sendLocationToRadar];
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"رجوع" style:UIAlertActionStyleCancel handler:nil]];
+    alert.popoverPresentationController.sourceView = self.menuView;
+    alert.popoverPresentationController.sourceRect = self.menuView.bounds;
+    [controller presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)startMovementAtSpeed:(CLLocationSpeed)speed {
+    CLLocationCoordinate2D start = self.selectedCoordinate;
+    CLLocationCoordinate2D end = CLLocationCoordinate2DMake(start.latitude + 0.004, start.longitude + 0.004);
+    NSString *gpx = [NSString stringWithFormat:
+        @"<?xml version=\"1.0\"?><gpx version=\"1.1\"><trk><trkseg>"
+         "<trkpt lat=\"%.8f\" lon=\"%.8f\"/><trkpt lat=\"%.8f\" lon=\"%.8f\"/>"
+         "</trkseg></trk></gpx>",
+         start.latitude, start.longitude, end.latitude, end.longitude];
+
+    if (!self.movementManager) self.movementManager = [WFGPXMovementManager new];
+    NSError *error = nil;
+    if (![self.movementManager loadGPXData:[gpx dataUsingEncoding:NSUTF8StringEncoding] error:&error]) {
+        [self showMessage:@"تعذر تجهيز مسار الحركة."];
+        return;
+    }
+
+    self.movementManager.loops = YES;
+    __weak typeof(self) weakSelf = self;
+    self.movementManager.coordinateHandler = ^(CLLocationCoordinate2D coordinate) {
+        dispatch_async(dispatch_get_main_queue(), ^{ [weakSelf selectCoordinate:coordinate]; });
+    };
+    FGSetSimulationEnabled(YES);
+    [self.movementManager startWithSpeedMetersPerSecond:speed];
+    [self refreshFloatingColor];
+    [self refreshMenuState];
+    [self showMessage:[NSString stringWithFormat:@"بدأت الحركة بسرعة %.0f م/ث.", speed]];
+}
+
+- (void)startFakeMovement {
+    UIViewController *controller = self.hostWindow.rootViewController;
+    while (controller.presentedViewController) controller = controller.presentedViewController;
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"الحركة"
+                                                                   message:@"اختر السرعة"
+                                                            preferredStyle:UIAlertControllerStyleActionSheet];
+    [alert addAction:[UIAlertAction actionWithTitle:@"مشي — 2 م/ث" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
+        [self startMovementAtSpeed:2.0];
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"سيارة — 15 م/ث" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
+        [self startMovementAtSpeed:15.0];
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"سريع — 30 م/ث" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
+        [self startMovementAtSpeed:30.0];
+    }]];
+    if (self.movementManager.isRunning) {
+        [alert addAction:[UIAlertAction actionWithTitle:@"إيقاف الحركة" style:UIAlertActionStyleDestructive handler:^(__unused UIAlertAction *action) {
+            [self.movementManager stop];
+        }]];
+    }
+    [alert addAction:[UIAlertAction actionWithTitle:@"رجوع" style:UIAlertActionStyleCancel handler:nil]];
+    alert.popoverPresentationController.sourceView = self.menuView;
+    alert.popoverPresentationController.sourceRect = self.menuView.bounds;
+    [controller presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)sendLocationToRadar {
+    NSDictionary *payload = @{
+        @"latitude": @(self.selectedCoordinate.latitude),
+        @"longitude": @(self.selectedCoordinate.longitude),
+        @"timestamp": @((long long)(NSDate.date.timeIntervalSince1970 * 1000.0))
+    };
+    [FGDefaults() setObject:payload forKey:@"FGRadarPendingLocation"];
+    [FGDefaults() synchronize];
+    CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(),
+                                         CFSTR("fun.p3nd.fakegps/radar-location"),
+                                         NULL, NULL, true);
+    [self showMessage:(self.savedRadarDevice.state == CBPeripheralStateConnected ?
+                       @"تم إرسال الموقع للرادار." : @"تم حفظ الموقع وسيُرسل عند اتصال الرادار.")];
+}
+
 - (void)openSettingsAndFunctions {
     UIViewController *controller = self.hostWindow.rootViewController;
     while (controller.presentedViewController) controller = controller.presentedViewController;
@@ -507,6 +604,9 @@ static UIImage *FGSymbol(NSString *name) {
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"الإعدادات والوظائف"
                                                                    message:@"اختر القسم"
                                                             preferredStyle:UIAlertControllerStyleActionSheet];
+    [alert addAction:[UIAlertAction actionWithTitle:@"قسم الموقع والحركة" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
+        dispatch_async(dispatch_get_main_queue(), ^{ [self openLocationFunctions]; });
+    }]];
     [alert addAction:[UIAlertAction actionWithTitle:@"قسم المعرّف" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
         dispatch_async(dispatch_get_main_queue(), ^{ [self idSettingsTapped]; });
     }]];
@@ -519,6 +619,9 @@ static UIImage *FGSymbol(NSString *name) {
     UIAlertActionStyle uploadStyle = uploadEnabled ? UIAlertActionStyleDestructive : UIAlertActionStyleDefault;
     [alert addAction:[UIAlertAction actionWithTitle:uploadTitle style:uploadStyle handler:^(__unused UIAlertAction *action) {
         [self setUploadEnabled:!uploadEnabled];
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"إخفاء زر الأداة" style:UIAlertActionStyleDestructive handler:^(__unused UIAlertAction *action) {
+        [self hideFloating];
     }]];
     [alert addAction:[UIAlertAction actionWithTitle:@"رجوع" style:UIAlertActionStyleCancel handler:nil]];
     alert.popoverPresentationController.sourceView = self.menuView;
@@ -539,6 +642,10 @@ static UIImage *FGSymbol(NSString *name) {
     [FGDefaults() setDouble:coordinate.latitude forKey:@"FGLatitude"];
     [FGDefaults() setDouble:coordinate.longitude forKey:@"FGLongitude"];
     [FGDefaults() synchronize];
+
+    CFPreferencesSetAppValue(CFSTR("latitude"), (__bridge CFNumberRef)@(coordinate.latitude), FGSharedDomain);
+    CFPreferencesSetAppValue(CFSTR("longitude"), (__bridge CFNumberRef)@(coordinate.longitude), FGSharedDomain);
+    CFPreferencesAppSynchronize(FGSharedDomain);
 
     [self.mapView removeAnnotations:self.mapView.annotations];
     MKPointAnnotation *pin = [MKPointAnnotation new];
@@ -723,6 +830,15 @@ static UIImage *FGSymbol(NSString *name) {
     [alert addAction:[UIAlertAction actionWithTitle:@"عرض الأجهزة المكتشفة" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
         [self showBLEDevicesList];
     }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"اقتران بالرادار المحفوظ" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
+        [self connectSavedRadar];
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"فصل الرادار" style:UIAlertActionStyleDestructive handler:^(__unused UIAlertAction *action) {
+        [self disconnectRadar];
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"إرسال الموقع للرادار" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
+        [self sendLocationToRadar];
+    }]];
     [alert addAction:[UIAlertAction actionWithTitle:@"إيقاف البحث" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
         [self.btManager stopScan];
     }]];
@@ -746,6 +862,34 @@ static UIImage *FGSymbol(NSString *name) {
     alert.popoverPresentationController.sourceView = self.menuView;
     alert.popoverPresentationController.sourceRect = self.menuView.bounds;
     [controller presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)connectSavedRadar {
+    if (!self.savedRadarUUID) {
+        [self showMessage:@"لا توجد خطة رادار محفوظة. ابحث عن جهاز واختره أولًا."];
+        return;
+    }
+    if (!self.btManager) [self enableBluetooth];
+
+    if (self.savedRadarDevice && self.btManager.state == CBManagerStatePoweredOn) {
+        [self.btManager connectPeripheral:self.savedRadarDevice options:nil];
+        [self showMessage:@"جاري الاقتران بالرادار المحفوظ."];
+        return;
+    }
+
+    if (self.btManager.state == CBManagerStatePoweredOn) {
+        [self.btManager scanForPeripheralsWithServices:nil options:@{CBCentralManagerScanOptionAllowDuplicatesKey:@NO}];
+        [self showMessage:@"جاري البحث عن الرادار المحفوظ للاتصال به."];
+    }
+}
+
+- (void)disconnectRadar {
+    if (self.savedRadarDevice && self.btManager) {
+        [self.btManager cancelPeripheralConnection:self.savedRadarDevice];
+        [self showMessage:@"تم فصل الرادار."];
+    } else {
+        [self showMessage:@"لا يوجد رادار متصل."];
+    }
 }
 
 - (void)centralManagerDidUpdateState:(CBCentralManager *)central {
