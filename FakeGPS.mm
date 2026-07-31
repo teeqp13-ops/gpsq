@@ -79,8 +79,10 @@ static UIImage *FGSymbol(NSString *name) {
     return nil;
 }
 
-@interface FGManager : NSObject <UISearchBarDelegate, MKMapViewDelegate, CBCentralManagerDelegate>
+@interface FGManager : NSObject <UISearchBarDelegate, MKMapViewDelegate, CBCentralManagerDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate>
 @property(nonatomic,strong) UIButton *floatingButton;
+@property(nonatomic,strong) UIWindow *uploadIconWindow;
+@property(nonatomic,strong) UIButton *uploadIconButton;
 @property(nonatomic,strong) UIView *menuView;
 @property(nonatomic,strong) MKMapView *mapView;
 @property(nonatomic,strong) UILabel *coordinateLabel;
@@ -133,6 +135,7 @@ static UIImage *FGSymbol(NSString *name) {
                                                    object:nil];
         [self loadRadarPlan];
         [self attachWhenReady];
+        [self refreshUploadFloatingIcon];
     });
 }
 
@@ -342,14 +345,11 @@ static UIImage *FGSymbol(NSString *name) {
     [controls addSubview:searchButton];
     y += 60;
 
-    UIButton *toggle = [self cardButton:@"تفعيل GPS" symbol:@"location.fill" frame:CGRectMake(14, y, width, 52) action:@selector(toggleGPS:)];
+    UIButton *toggle = [self cardButton:@"تفعيل GPS" symbol:@"location.fill" frame:CGRectMake(14, y, CGRectGetWidth(panel.bounds) - 28, 52) action:@selector(toggleGPS:)];
     toggle.backgroundColor = FGColor(33, 166, 92);
+    toggle.contentHorizontalAlignment = UIControlContentHorizontalAlignmentCenter;
     self.gpsToggleButton = toggle;
-
-    UIButton *upload = [self cardButton:@"تفعيل رفع الصور" symbol:@"photo.on.rectangle" frame:CGRectMake(22 + width, y, width, 52) action:@selector(toggleUpload:)];
-    upload.backgroundColor = FGColor(126, 77, 214);
     [controls addSubview:toggle];
-    [controls addSubview:upload];
     y += 60;
 
     UIButton *settingsAndFunctions = [self cardButton:@"الإعدادات والوظائف"
@@ -473,6 +473,13 @@ static UIImage *FGSymbol(NSString *name) {
     [alert addAction:[UIAlertAction actionWithTitle:@"قسم البلوتوث" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
         dispatch_async(dispatch_get_main_queue(), ^{ [self bluetoothSettingsTapped]; });
     }]];
+
+    BOOL uploadEnabled = [FGDefaults() boolForKey:FGUploadEnabled];
+    NSString *uploadTitle = uploadEnabled ? @"إيقاف رفع الصور" : @"تفعيل رفع الصور من الأستوديو";
+    UIAlertActionStyle uploadStyle = uploadEnabled ? UIAlertActionStyleDestructive : UIAlertActionStyleDefault;
+    [alert addAction:[UIAlertAction actionWithTitle:uploadTitle style:uploadStyle handler:^(__unused UIAlertAction *action) {
+        [self setUploadEnabled:!uploadEnabled];
+    }]];
     [alert addAction:[UIAlertAction actionWithTitle:@"رجوع" style:UIAlertActionStyleCancel handler:nil]];
     alert.popoverPresentationController.sourceView = self.menuView;
     alert.popoverPresentationController.sourceRect = self.menuView.bounds;
@@ -511,11 +518,98 @@ static UIImage *FGSymbol(NSString *name) {
     [self toggleFakeGPS];
 }
 
-- (void)toggleUpload:(UIButton *)sender {
-    BOOL enabled = ![FGDefaults() boolForKey:FGUploadEnabled];
+- (void)toggleUpload:(__unused UIButton *)sender {
+    [self setUploadEnabled:![FGDefaults() boolForKey:FGUploadEnabled]];
+}
+
+- (void)setUploadEnabled:(BOOL)enabled {
     [FGDefaults() setBool:enabled forKey:FGUploadEnabled];
     [FGDefaults() synchronize];
-    [sender setTitle:(enabled ? @"إيقاف رفع الصور" : @"تفعيل رفع الصور") forState:UIControlStateNormal];
+    [self refreshUploadFloatingIcon];
+    [self showMessage:(enabled ? @"تم تفعيل أيقونة اختيار الصور." : @"تم إيقاف أيقونة اختيار الصور.")];
+}
+
+- (void)refreshUploadFloatingIcon {
+    BOOL enabled = [FGDefaults() boolForKey:FGUploadEnabled];
+    if (!enabled) {
+        self.uploadIconWindow.hidden = YES;
+        return;
+    }
+
+    if (!self.uploadIconWindow) {
+        CGRect screenBounds = UIScreen.mainScreen.bounds;
+        CGRect iconFrame = CGRectMake(CGRectGetWidth(screenBounds) - 66, CGRectGetMidY(screenBounds) - 27, 54, 54);
+        UIWindow *window = nil;
+
+        if (@available(iOS 13.0, *)) {
+            UIWindowScene *activeScene = nil;
+            for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+                if ([scene isKindOfClass:UIWindowScene.class] && scene.activationState == UISceneActivationStateForegroundActive) {
+                    activeScene = (UIWindowScene *)scene;
+                    break;
+                }
+            }
+            if (activeScene) window = [[UIWindow alloc] initWithWindowScene:activeScene];
+        }
+        if (!window) window = [[UIWindow alloc] initWithFrame:iconFrame];
+        window.frame = iconFrame;
+        window.windowLevel = UIWindowLevelStatusBar + 350;
+        window.backgroundColor = UIColor.clearColor;
+        window.rootViewController = [UIViewController new];
+
+        UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
+        button.frame = window.bounds;
+        button.layer.cornerRadius = 27;
+        button.backgroundColor = FGColor(126, 77, 214);
+        button.tintColor = UIColor.whiteColor;
+        [button setImage:FGSymbol(@"photo.on.rectangle.angled") forState:UIControlStateNormal];
+        button.layer.shadowColor = UIColor.blackColor.CGColor;
+        button.layer.shadowOpacity = 0.4;
+        button.layer.shadowRadius = 8;
+        [button addTarget:self action:@selector(openPhotoLibrary) forControlEvents:UIControlEventTouchUpInside];
+        [window.rootViewController.view addSubview:button];
+
+        self.uploadIconWindow = window;
+        self.uploadIconButton = button;
+    }
+
+    self.uploadIconWindow.hidden = NO;
+}
+
+- (void)openPhotoLibrary {
+    if (![UIImagePickerController isSourceTypeAvailable:UIImagePickerControllerSourceTypePhotoLibrary]) {
+        [self showMessage:@"الأستوديو غير متاح."];
+        return;
+    }
+
+    UIImagePickerController *picker = [UIImagePickerController new];
+    picker.delegate = self;
+    picker.sourceType = UIImagePickerControllerSourceTypePhotoLibrary;
+    picker.allowsEditing = YES;
+    [self.uploadIconWindow.rootViewController presentViewController:picker animated:YES completion:nil];
+}
+
+- (void)imagePickerController:(UIImagePickerController *)picker didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *)info {
+    UIImage *image = info[UIImagePickerControllerEditedImage] ?: info[UIImagePickerControllerOriginalImage];
+    NSData *data = image ? UIImageJPEGRepresentation(image, 0.94) : nil;
+    NSString *path = @"/var/mobile/Library/Preferences/WolfGPS_SelectedImage.jpg";
+    BOOL saved = data.length > 0 && [data writeToFile:path atomically:YES];
+
+    if (saved) {
+        [FGDefaults() setObject:path forKey:@"FGSelectedUploadImagePath"];
+        [FGDefaults() synchronize];
+        CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(),
+                                             CFSTR("fun.p3nd.fakegps/selected-image-changed"),
+                                             NULL, NULL, true);
+    }
+
+    [picker dismissViewControllerAnimated:YES completion:^{
+        [self showMessage:(saved ? @"تم اختيار الصورة من الأستوديو." : @"تعذر حفظ الصورة.")];
+    }];
+}
+
+- (void)imagePickerControllerDidCancel:(UIImagePickerController *)picker {
+    [picker dismissViewControllerAnimated:YES completion:nil];
 }
 
 - (void)enableBluetooth {
