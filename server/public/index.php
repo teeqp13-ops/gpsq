@@ -31,6 +31,12 @@ function e(?string $value): string
     return htmlspecialchars((string)$value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 }
 
+function clip(?string $value, int $length): string
+{
+    $text = (string)$value;
+    return function_exists('mb_substr') ? mb_substr($text, 0, $length, 'UTF-8') : substr($text, 0, $length);
+}
+
 function csrf(): void
 {
     $provided = (string)($_POST['csrf'] ?? '');
@@ -47,12 +53,11 @@ function redirectPanel(string $tab = 'dashboard', string $message = ''): never
     exit;
 }
 
-function randomLicenseCode(): string
+function randomLicenseCode(int $length): string
 {
-    $alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-    $max = strlen($alphabet) - 1;
+    $length = max(8, min(20, $length));
     $code = '';
-    for ($i = 0; $i < 8; $i++) $code .= $alphabet[random_int(0, $max)];
+    for ($i = 0; $i < $length; $i++) $code .= (string)random_int(0, 9);
     return $code;
 }
 
@@ -111,18 +116,19 @@ if ($isAuth) {
         csrf();
         $manual = strtoupper(trim((string)($_POST['manual_code'] ?? '')));
         $quantity = max(1, min(100, (int)($_POST['quantity'] ?? 1)));
+        $codeLength = max(8, min(20, (int)($_POST['code_length'] ?? 8)));
         $duration = max(1, min(3650, (int)($_POST['duration_days'] ?? 30)));
         $maxDevices = max(1, min(10, (int)($_POST['max_devices'] ?? 1)));
-        $note = mb_substr(trim((string)($_POST['note'] ?? '')), 0, 160);
-        if ($manual !== '' && !preg_match('/^[A-Z0-9]{8}$/', $manual)) {
-            redirectPanel('codes', 'الكود اليدوي يجب أن يكون 8 خانات إنجليزية فقط.');
+        $note = clip(trim((string)($_POST['note'] ?? '')), 160);
+        if ($manual !== '' && !preg_match('/^[0-9]{8,20}$/', $manual)) {
+            redirectPanel('codes', 'الكود اليدوي يجب أن يحتوي على 8 إلى 20 رقمًا فقط.');
         }
         $created = [];
         $stmt = $db->prepare('INSERT OR IGNORE INTO codes(code,duration_days,max_devices,note) VALUES(?,?,?,?)');
         $target = $manual !== '' ? 1 : $quantity;
         for ($i = 0; $i < $target; $i++) {
             for ($retry = 0; $retry < 20; $retry++) {
-                $code = $manual !== '' ? $manual : randomLicenseCode();
+                $code = $manual !== '' ? $manual : randomLicenseCode($codeLength);
                 $stmt->execute([$code, $duration, $maxDevices, $note]);
                 if ($stmt->rowCount() > 0) {
                     $created[] = $code;
@@ -139,7 +145,7 @@ if ($isAuth) {
         csrf();
         $code = strtoupper(trim((string)($_POST['code'] ?? '')));
         $status = (string)($_POST['status'] ?? '');
-        if (preg_match('/^[A-Z0-9]{8}$/', $code) && in_array($status, ['unused','linked','expired','closed'], true)) {
+        if (preg_match('/^[0-9]{8,20}$/', $code) && in_array($status, ['unused','linked','expired','closed'], true)) {
             $db->prepare('UPDATE codes SET status=? WHERE code=?')->execute([$status, $code]);
             logActivity($code, null, 'admin_status', 'success', $status);
         }
@@ -194,7 +200,7 @@ if ($isAuth) {
             'maintenance' => isset($_POST['maintenance']) ? '1' : '0',
             'force_update' => isset($_POST['force_update']) ? '1' : '0',
             'minimum_version' => preg_replace('/[^0-9.]/', '', (string)($_POST['minimum_version'] ?? '17.0.0')) ?: '17.0.0',
-            'server_message' => mb_substr(trim((string)($_POST['server_message'] ?? '')), 0, 240),
+            'server_message' => clip(trim((string)($_POST['server_message'] ?? '')), 240),
         ];
         $stmt = $db->prepare("INSERT INTO settings(name,value,updated_at) VALUES(?,?,datetime('now')) ON CONFLICT(name) DO UPDATE SET value=excluded.value,updated_at=datetime('now')");
         foreach ($settings as $name => $value) $stmt->execute([$name, $value]);
@@ -306,10 +312,11 @@ button,input,select,textarea{font:inherit}.login{min-height:100vh;display:grid;p
 
 <?php elseif ($tab==='codes'): ?>
 <section class="panel" style="margin-top:0">
-  <div class="panel-head"><div><h3>إنشاء أكواد V17</h3><p class="muted">الصيغة الموحدة: 8 خانات</p></div></div>
+  <div class="panel-head"><div><h3>إنشاء أكواد V17</h3><p class="muted">الصيغة الموحدة: من 8 إلى 20 رقمًا</p></div></div>
   <form method="post" class="form-grid">
     <input type="hidden" name="csrf" value="<?= e($csrf) ?>">
-    <div class="field"><label>كود يدوي (اختياري)</label><input name="manual_code" maxlength="8" pattern="[A-Za-z0-9]{8}" placeholder="AB12CD34" style="text-transform:uppercase"></div>
+    <div class="field"><label>كود يدوي (اختياري)</label><input name="manual_code" inputmode="numeric" minlength="8" maxlength="20" pattern="[0-9]{8,20}" placeholder="12345678"></div>
+    <div class="field"><label>طول الكود</label><input type="number" name="code_length" min="8" max="20" value="8"></div>
     <div class="field"><label>العدد</label><input type="number" name="quantity" min="1" max="100" value="1"></div>
     <div class="field"><label>المدة بالأيام</label><input type="number" name="duration_days" min="1" max="3650" value="30"></div>
     <div class="field"><label>عدد الأجهزة</label><input type="number" name="max_devices" min="1" max="10" value="1"></div>
@@ -324,7 +331,7 @@ button,input,select,textarea{font:inherit}.login{min-height:100vh;display:grid;p
     <td class="code"><?= e($row['code']) ?></td><td><span class="badge <?= e($row['status']) ?>"><?= e(statusLabel($row['status'])) ?></span></td>
     <td><?= (int)$row['duration_days'] ?> يوم</td><td><?= (int)$row['max_devices'] ?></td><td><?= e($row['activated_at'] ?: '—') ?></td><td><?= e($row['expires_at'] ?: '—') ?></td>
     <td><div class="actions">
-      <form method="post"><input type="hidden" name="csrf" value="<?= e($csrf) ?>"><input type="hidden" name="code" value="<?= e($row['code']) ?>"><select name="status"><option value="unused">غير مستخدم</option><option value="linked">مرتبط</option><option value="expired">منتهي</option><option value="closed">موقوف</option></select><button class="btn btn-sm" name="change_status">حفظ</button></form>
+      <form method="post"><input type="hidden" name="csrf" value="<?= e($csrf) ?>"><input type="hidden" name="code" value="<?= e($row['code']) ?>"><select name="status"><option value="unused" <?= $row['status']==='unused'?'selected':'' ?>>غير مستخدم</option><option value="linked" <?= $row['status']==='linked'?'selected':'' ?>>مرتبط</option><option value="expired" <?= $row['status']==='expired'?'selected':'' ?>>منتهي</option><option value="closed" <?= $row['status']==='closed'?'selected':'' ?>>موقوف</option></select><button class="btn btn-sm" name="change_status">حفظ</button></form>
       <form method="post" onsubmit="return confirm('فصل الجهاز وإعادة تعيين الكود؟')"><input type="hidden" name="csrf" value="<?= e($csrf) ?>"><input type="hidden" name="code" value="<?= e($row['code']) ?>"><button class="btn btn-warn btn-sm" name="reset_code">إعادة تعيين</button></form>
       <form method="post" onsubmit="return confirm('حذف الكود نهائيًا؟')"><input type="hidden" name="csrf" value="<?= e($csrf) ?>"><input type="hidden" name="code" value="<?= e($row['code']) ?>"><button class="btn btn-danger btn-sm" name="delete_code">حذف</button></form>
     </div></td>
@@ -335,13 +342,13 @@ button,input,select,textarea{font:inherit}.login{min-height:100vh;display:grid;p
 <?php elseif ($tab==='devices'): ?>
 <section class="panel" style="margin-top:0"><div class="panel-head"><h3>الأجهزة المرتبطة</h3><span class="muted"><?= count($devices) ?> جهاز</span></div>
 <div class="table-wrap"><table><thead><tr><th>الكود</th><th>معرف الجهاز</th><th>الاسم</th><th>iOS</th><th>نسخة التطبيق</th><th>آخر اتصال</th><th>إجراء</th></tr></thead><tbody>
-<?php foreach($devices as $row): ?><tr><td class="code"><?= e($row['code']) ?></td><td class="code"><?= e(mb_substr($row['udid'],0,24)) ?>…</td><td><?= e($row['device_name']) ?></td><td><?= e($row['ios_version']) ?></td><td><?= e($row['app_version']) ?></td><td><?= e($row['last_seen']) ?></td><td><form method="post" onsubmit="return confirm('فصل هذا الجهاز؟')"><input type="hidden" name="csrf" value="<?= e($csrf) ?>"><input type="hidden" name="device_id" value="<?= (int)$row['id'] ?>"><button class="btn btn-danger btn-sm" name="disconnect_device">فصل</button></form></td></tr><?php endforeach; ?><?php if(!$devices): ?><tr><td colspan="7" class="empty">لا توجد أجهزة مرتبطة</td></tr><?php endif; ?>
+<?php foreach($devices as $row): ?><tr><td class="code"><?= e($row['code']) ?></td><td class="code"><?= e(clip($row['udid'],24)) ?>…</td><td><?= e($row['device_name']) ?></td><td><?= e($row['ios_version']) ?></td><td><?= e($row['app_version']) ?></td><td><?= e($row['last_seen']) ?></td><td><form method="post" onsubmit="return confirm('فصل هذا الجهاز؟')"><input type="hidden" name="csrf" value="<?= e($csrf) ?>"><input type="hidden" name="device_id" value="<?= (int)$row['id'] ?>"><button class="btn btn-danger btn-sm" name="disconnect_device">فصل</button></form></td></tr><?php endforeach; ?><?php if(!$devices): ?><tr><td colspan="7" class="empty">لا توجد أجهزة مرتبطة</td></tr><?php endif; ?>
 </tbody></table></div></section>
 
 <?php elseif ($tab==='logs'): ?>
 <section class="panel" style="margin-top:0"><div class="panel-head"><div><h3>سجل العمليات</h3><p class="muted">آخر 300 حدث</p></div><form method="post" onsubmit="return confirm('مسح السجل؟')"><input type="hidden" name="csrf" value="<?= e($csrf) ?>"><button class="btn btn-danger btn-sm" name="clear_logs">مسح السجل</button></form></div>
 <div class="table-wrap"><table><thead><tr><th>الوقت</th><th>العملية</th><th>النتيجة</th><th>الكود</th><th>الجهاز</th><th>الرسالة</th><th>IP</th></tr></thead><tbody>
-<?php foreach($logs as $row): ?><tr><td><?= e($row['created_at']) ?></td><td><?= e($row['action']) ?></td><td><span class="badge <?= e($row['result']) ?>"><?= e($row['result']) ?></span></td><td class="code"><?= e($row['code']) ?></td><td class="code"><?= e(mb_substr((string)$row['udid'],0,18)) ?></td><td><?= e($row['message']) ?></td><td><?= e($row['ip']) ?></td></tr><?php endforeach; ?><?php if(!$logs): ?><tr><td colspan="7" class="empty">السجل فارغ</td></tr><?php endif; ?>
+<?php foreach($logs as $row): ?><tr><td><?= e($row['created_at']) ?></td><td><?= e($row['action']) ?></td><td><span class="badge <?= e($row['result']) ?>"><?= e($row['result']) ?></span></td><td class="code"><?= e($row['code']) ?></td><td class="code"><?= e(clip((string)$row['udid'],18)) ?></td><td><?= e($row['message']) ?></td><td><?= e($row['ip']) ?></td></tr><?php endforeach; ?><?php if(!$logs): ?><tr><td colspan="7" class="empty">السجل فارغ</td></tr><?php endif; ?>
 </tbody></table></div></section>
 
 <?php elseif ($tab==='settings'): ?>
