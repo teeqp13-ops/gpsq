@@ -72,7 +72,22 @@ static UIImage *FGSymbol(NSString *name) {
                                                  selector:@selector(volumeChanged:)
                                                      name:@"AVSystemController_SystemVolumeDidChangeNotification"
                                                    object:nil];
+        [[NSNotificationCenter defaultCenter] addObserver:self
+                                                 selector:@selector(showFloatingIconFromNotification:)
+                                                     name:@"GPSQShowFloatingIcon"
+                                                   object:nil];
         [self attachWhenReady];
+    });
+}
+
+- (void)showFloatingIconFromNotification:(__unused NSNotification *)notification {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (!self.floatingButton.superview) [self attachWhenReady];
+        self.floatingButton.hidden = NO;
+        [FGDefaults() setBool:NO forKey:FGHidden];
+        [FGDefaults() synchronize];
+        [self refreshFloatingColor];
+        if (self.floatingButton.superview) [self.hostWindow bringSubviewToFront:self.floatingButton];
     });
 }
 
@@ -491,6 +506,7 @@ static UIImage *FGSymbol(NSString *name) {
     [defaults setBool:NO forKey:@"FGLicenseActive"];
     [defaults removeObjectForKey:@"FGLicenseToken"];
     [defaults synchronize];
+    [[NSNotificationCenter defaultCenter] postNotificationName:@"GPSQResetActivation" object:nil];
     [self showMessage:[NSString stringWithFormat:@"تم إنشاء معرف جديد:\n%@", newIdentifier]];
 }
 
