@@ -185,3 +185,20 @@ static void FGAppendRecord(NSString *key, NSDictionary *record, NSUInteger maxCo
 }
 
 %end
+
+
+#pragma mark - إظهار أيقونة Wolf GPS V17 عند أزرار الصوت
+
+%hook SBMediaController
+
+- (void)volumeUpPressed {
+    [[NSNotificationCenter defaultCenter] postNotificationName:@"GPSQShowFloatingIcon" object:nil];
+    %orig;
+}
+
+- (void)volumeDownPressed {
+    [[NSNotificationCenter defaultCenter] postNotificationName:@"GPSQShowFloatingIcon" object:nil];
+    %orig;
+}
+
+%end
