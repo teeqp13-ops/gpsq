@@ -11,6 +11,23 @@ static NSString *const FGFavorites = @"FGFavorites";
 static NSString *const FGUploadEnabled = @"FGUploadEnabled";
 static NSString *const FGBluetoothEnabled = @"FGBluetoothEnabled";
 static NSString *const FGDeviceIdentifierKey = @"GPSQDeviceIdentifier";
+static CFStringRef const FGSharedDomain = CFSTR("fun.p3nd.fakegps");
+
+static BOOL FGSimulationEnabled(void) {
+    id sharedValue = CFBridgingRelease(CFPreferencesCopyAppValue(CFSTR("enabled"), FGSharedDomain));
+    if ([sharedValue respondsToSelector:@selector(boolValue)]) return [sharedValue boolValue];
+    return [NSUserDefaults.standardUserDefaults boolForKey:FGEnabled];
+}
+
+static void FGSetSimulationEnabled(BOOL enabled) {
+    NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+    [defaults setBool:enabled forKey:FGEnabled];
+    [defaults setBool:enabled forKey:@"gps_simulation_enabled"];
+    [defaults synchronize];
+
+    CFPreferencesSetAppValue(CFSTR("enabled"), enabled ? kCFBooleanTrue : kCFBooleanFalse, FGSharedDomain);
+    CFPreferencesAppSynchronize(FGSharedDomain);
+}
 
 static NSString *FGCurrentDeviceIdentifier(void) {
     NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
@@ -120,6 +137,9 @@ static UIImage *FGSymbol(NSString *name) {
     [button setImage:FGSymbol(@"location.fill") forState:UIControlStateNormal];
     [button addTarget:self action:@selector(openMenu) forControlEvents:UIControlEventTouchUpInside];
     [button addGestureRecognizer:[[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(dragFloating:)]];
+    UILongPressGestureRecognizer *togglePress = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(handleFakeGPSTogglePress:)];
+    togglePress.minimumPressDuration = 0.55;
+    [button addGestureRecognizer:togglePress];
 
     double x = [FGDefaults() doubleForKey:FGX];
     double y = [FGDefaults() doubleForKey:FGY];
@@ -133,12 +153,26 @@ static UIImage *FGSymbol(NSString *name) {
 }
 
 - (void)refreshFloatingColor {
-    BOOL enabled = [FGDefaults() boolForKey:FGEnabled];
+    BOOL enabled = FGSimulationEnabled();
     self.floatingButton.backgroundColor = enabled ? FGColor(42, 203, 112) : FGColor(77, 87, 101);
     self.floatingButton.layer.shadowColor = (enabled ? FGColor(42, 203, 112) : UIColor.blackColor).CGColor;
     self.floatingButton.layer.shadowOpacity = 0.45;
     self.floatingButton.layer.shadowRadius = 14;
     self.floatingButton.layer.shadowOffset = CGSizeMake(0, 6);
+}
+
+- (void)toggleFakeGPS {
+    BOOL enabled = FGSimulationEnabled();
+    FGSetSimulationEnabled(!enabled);
+    [self refreshFloatingColor];
+    [self refreshMenuState];
+
+    UIImpactFeedbackGenerator *feedback = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleMedium];
+    [feedback impactOccurred];
+}
+
+- (void)handleFakeGPSTogglePress:(UILongPressGestureRecognizer *)gesture {
+    if (gesture.state == UIGestureRecognizerStateBegan) [self toggleFakeGPS];
 }
 
 - (void)dragFloating:(UIPanGestureRecognizer *)gesture {
@@ -344,7 +378,7 @@ static UIImage *FGSymbol(NSString *name) {
 }
 
 - (void)refreshMenuState {
-    BOOL enabled = [FGDefaults() boolForKey:FGEnabled];
+    BOOL enabled = FGSimulationEnabled();
     self.statusLabel.text = enabled ? @"● GPS متصل — تغيير الموقع نشط" : @"● GPS جاهز — تغيير الموقع متوقف";
     self.statusLabel.textColor = enabled ? FGColor(52, 211, 117) : FGColor(248, 184, 61);
     [self.gpsToggleButton setTitle:(enabled ? @"إيقاف تغيير الموقع" : @"تفعيل تغيير الموقع") forState:UIControlStateNormal];
@@ -382,12 +416,8 @@ static UIImage *FGSymbol(NSString *name) {
     if (self.floatingButton.superview) [self.hostWindow bringSubviewToFront:self.floatingButton];
 }
 
-- (void)toggleGPS:(UIButton *)sender {
-    BOOL enabled = ![FGDefaults() boolForKey:FGEnabled];
-    [FGDefaults() setBool:enabled forKey:FGEnabled];
-    [FGDefaults() synchronize];
-    [self refreshFloatingColor];
-    [self refreshMenuState];
+- (void)toggleGPS:(__unused UIButton *)sender {
+    [self toggleFakeGPS];
 }
 
 - (void)toggleUpload:(UIButton *)sender {
