@@ -1,6 +1,7 @@
 #import <UIKit/UIKit.h>
 #import <MapKit/MapKit.h>
 #import <CoreLocation/CoreLocation.h>
+#import <CoreBluetooth/CoreBluetooth.h>
 
 static NSString *const FGEnabled = @"FGEnabled";
 static NSString *const FGHidden = @"FGHidden";
@@ -30,7 +31,7 @@ static UIImage *FGSymbol(NSString *name) {
     return nil;
 }
 
-@interface FGManager : NSObject <UISearchBarDelegate, MKMapViewDelegate>
+@interface FGManager : NSObject <UISearchBarDelegate, MKMapViewDelegate, CBCentralManagerDelegate>
 @property(nonatomic,strong) UIButton *floatingButton;
 @property(nonatomic,strong) UIView *menuView;
 @property(nonatomic,strong) MKMapView *mapView;
@@ -42,6 +43,8 @@ static UIImage *FGSymbol(NSString *name) {
 @property(nonatomic,assign) NSInteger volumeCount;
 @property(nonatomic,assign) NSTimeInterval lastVolumeTime;
 @property(nonatomic,assign) CLLocationCoordinate2D selectedCoordinate;
+@property(nonatomic,strong) CBCentralManager *btManager;
+@property(nonatomic,strong) NSMutableArray<CBPeripheral *> *foundDevices;
 + (instancetype)shared;
 - (void)start;
 @end
@@ -249,73 +252,72 @@ static UIImage *FGSymbol(NSString *name) {
     [panel addSubview:coord];
 
     CGFloat rowY = CGRectGetMaxY(coord.frame) + 8;
+    CGFloat availableHeight = CGRectGetHeight(panel.bounds) - rowY - MAX(self.hostWindow.safeAreaInsets.bottom, 8);
+    UIScrollView *features = [[UIScrollView alloc] initWithFrame:CGRectMake(0, rowY, CGRectGetWidth(panel.bounds), availableHeight)];
+    features.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    features.alwaysBounceVertical = YES;
+    features.showsVerticalScrollIndicator = NO;
+    [panel addSubview:features];
+
     CGFloat gap = 8;
-    CGFloat width = (panel.bounds.size.width - 36) / 2.0;
+    CGFloat width = (CGRectGetWidth(panel.bounds) - 36) / 2.0;
+    CGFloat y = 0;
 
     NSString *identifier = FGCurrentDeviceIdentifier();
     NSString *suffix = identifier.length > 8 ? [identifier substringFromIndex:identifier.length - 8] : identifier;
-    UILabel *deviceIdentifier = [[UILabel alloc] initWithFrame:CGRectMake(14, rowY, panel.bounds.size.width - 28, 40)];
-    deviceIdentifier.text = [NSString stringWithFormat:@"معرف الجهاز    •••• %@", suffix];
-    deviceIdentifier.textColor = UIColor.whiteColor;
-    deviceIdentifier.textAlignment = NSTextAlignmentCenter;
-    deviceIdentifier.font = [UIFont monospacedSystemFontOfSize:13 weight:UIFontWeightSemibold];
-    deviceIdentifier.backgroundColor = FGColor(17, 21, 26);
-    deviceIdentifier.layer.cornerRadius = 13;
-    deviceIdentifier.clipsToBounds = YES;
-    [panel addSubview:deviceIdentifier];
+    UILabel *identifierCard = [[UILabel alloc] initWithFrame:CGRectMake(14, y, CGRectGetWidth(panel.bounds) - 28, 42)];
+    identifierCard.text = [NSString stringWithFormat:@"معرف الجهاز    •••• %@", suffix];
+    identifierCard.textColor = UIColor.whiteColor;
+    identifierCard.textAlignment = NSTextAlignmentCenter;
+    identifierCard.font = [UIFont monospacedSystemFontOfSize:13 weight:UIFontWeightSemibold];
+    identifierCard.backgroundColor = FGColor(17, 21, 26);
+    identifierCard.layer.cornerRadius = 13;
+    identifierCard.clipsToBounds = YES;
+    [features addSubview:identifierCard];
+    y += 50;
 
-    rowY += 48;
-    UIButton *toggle = [self cardButton:@"تفعيل تغيير الموقع"
-                                 symbol:@"location.fill"
-                                  frame:CGRectMake(14, rowY, width, 48)
-                                 action:@selector(toggleGPS:)];
+    UILabel *(^sectionLabel)(NSString *, CGFloat) = ^UILabel *(NSString *text, CGFloat originY) {
+        UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(18, originY, CGRectGetWidth(panel.bounds) - 36, 28)];
+        label.text = text;
+        label.textColor = FGColor(130, 174, 255);
+        label.textAlignment = NSTextAlignmentRight;
+        label.font = [UIFont systemFontOfSize:15 weight:UIFontWeightBold];
+        [features addSubview:label];
+        return label;
+    };
+
+    sectionLabel(@"مجموعة المعرف", y); y += 32;
+    UIButton *showID = [self cardButton:@"عرض المعرف الحالي" symbol:@"iphone" frame:CGRectMake(14, y, width, 48) action:@selector(showDeviceID)];
+    UIButton *newID = [self cardButton:@"إنشاء معرف جديد" symbol:@"arrow.triangle.2.circlepath" frame:CGRectMake(22 + width, y, width, 48) action:@selector(generateNewID)];
+    [features addSubview:showID]; [features addSubview:newID]; y += 56;
+    UIButton *copyID = [self cardButton:@"نسخ المعرف" symbol:@"doc.on.doc" frame:CGRectMake(14, y, width, 48) action:@selector(copyDeviceID)];
+    UIButton *idSettings = [self cardButton:@"إعدادات المعرف" symbol:@"gearshape" frame:CGRectMake(22 + width, y, width, 48) action:@selector(idSettingsTapped)];
+    [features addSubview:copyID]; [features addSubview:idSettings]; y += 62;
+
+    sectionLabel(@"مجموعة البلوتوث", y); y += 32;
+    UIButton *enableBT = [self cardButton:@"تشغيل البلوتوث" symbol:@"bolt.horizontal.circle" frame:CGRectMake(14, y, width, 48) action:@selector(enableBluetooth)];
+    UIButton *scanBT = [self cardButton:@"بحث عن أجهزة" symbol:@"dot.radiowaves.left.and.right" frame:CGRectMake(22 + width, y, width, 48) action:@selector(scanForBLEDevices)];
+    [features addSubview:enableBT]; [features addSubview:scanBT]; y += 56;
+    UIButton *showBT = [self cardButton:@"عرض الأجهزة" symbol:@"list.bullet" frame:CGRectMake(14, y, width, 48) action:@selector(showBLEDevicesList)];
+    UIButton *settingsBT = [self cardButton:@"إعدادات البلوتوث" symbol:@"gearshape.fill" frame:CGRectMake(22 + width, y, width, 48) action:@selector(bluetoothSettingsTapped)];
+    [features addSubview:showBT]; [features addSubview:settingsBT]; y += 62;
+
+    sectionLabel(@"مجموعة المفضلة", y); y += 32;
+    UIButton *saveFavorite = [self cardButton:@"حفظ الموقع" symbol:@"star.badge.plus" frame:CGRectMake(14, y, width, 48) action:@selector(saveCurrentLocation)];
+    UIButton *showFavorites = [self cardButton:@"عرض المفضلة" symbol:@"star.fill" frame:CGRectMake(22 + width, y, width, 48) action:@selector(showFavorites)];
+    [features addSubview:saveFavorite]; [features addSubview:showFavorites]; y += 56;
+    UIButton *favoriteSettings = [self cardButton:@"إعدادات المفضلة" symbol:@"slider.horizontal.3" frame:CGRectMake(14, y, CGRectGetWidth(panel.bounds) - 28, 48) action:@selector(favoritesSettingsTapped)];
+    [features addSubview:favoriteSettings]; y += 62;
+
+    sectionLabel(@"التحكم", y); y += 32;
+    UIButton *toggle = [self cardButton:@"تفعيل تغيير الموقع" symbol:@"location.fill" frame:CGRectMake(14, y, width, 48) action:@selector(toggleGPS:)];
     self.gpsToggleButton = toggle;
-    [panel addSubview:toggle];
+    UIButton *upload = [self cardButton:@"تفعيل رفع الصور" symbol:@"photo.on.rectangle" frame:CGRectMake(22 + width, y, width, 48) action:@selector(toggleUpload:)];
+    [features addSubview:toggle]; [features addSubview:upload]; y += 56;
+    UIButton *hide = [self cardButton:@"إخفاء زر الأداة" symbol:@"eye.slash.fill" frame:CGRectMake(14, y, CGRectGetWidth(panel.bounds) - 28, 48) action:@selector(hideFloating)];
+    [features addSubview:hide]; y += 64;
 
-    UIButton *hide = [self cardButton:@"إخفاء زر الأداة"
-                               symbol:@"eye.slash.fill"
-                                frame:CGRectMake(22 + width, rowY, width, 48)
-                               action:@selector(hideFloating)];
-    [panel addSubview:hide];
-
-    rowY += 56;
-    UIButton *upload = [self cardButton:@"تفعيل رفع الصور"
-                                 symbol:@"photo.on.rectangle"
-                                  frame:CGRectMake(14, rowY, width, 48)
-                                 action:@selector(toggleUpload:)];
-    [panel addSubview:upload];
-
-    UIButton *favorites = [self cardButton:@"المفضلة"
-                                    symbol:@"star.fill"
-                                     frame:CGRectMake(22 + width, rowY, width, 48)
-                                    action:@selector(showFavorites)];
-    [panel addSubview:favorites];
-
-    rowY += 56;
-    UIButton *copyDevice = [self cardButton:@"نسخ معرف الجهاز"
-                                     symbol:@"doc.on.doc"
-                                      frame:CGRectMake(14, rowY, width, 48)
-                                     action:@selector(copyDeviceIdentifier)];
-    [panel addSubview:copyDevice];
-
-    UIButton *changeDevice = [self cardButton:@"تغيير معرف الجهاز"
-                                       symbol:@"arrow.triangle.2.circlepath"
-                                        frame:CGRectMake(22 + width, rowY, width, 48)
-                                       action:@selector(changeDeviceIdentifier)];
-    [panel addSubview:changeDevice];
-
-    rowY += 56;
-    UIButton *bluetoothSettings = [self cardButton:@"إعدادات البلوتوث"
-                                            symbol:@"wave.3.right"
-                                             frame:CGRectMake(14, rowY, panel.bounds.size.width - 28, 50)
-                                            action:@selector(openBluetoothSettings)];
-    [panel addSubview:bluetoothSettings];
-
-    UISwitch *bluetoothSwitch = [[UISwitch alloc] initWithFrame:CGRectZero];
-    bluetoothSwitch.on = [FGDefaults() boolForKey:FGBluetoothEnabled];
-    bluetoothSwitch.center = CGPointMake(52, 25);
-    [bluetoothSwitch addTarget:self action:@selector(bluetoothSwitchChanged:) forControlEvents:UIControlEventValueChanged];
-    [bluetoothSettings addSubview:bluetoothSwitch];
+    features.contentSize = CGSizeMake(CGRectGetWidth(panel.bounds), y);
 
     [self refreshMenuState];
     [self.hostWindow bringSubviewToFront:panel];
@@ -375,21 +377,72 @@ static UIImage *FGSymbol(NSString *name) {
     [sender setTitle:(enabled ? @"إيقاف رفع الصور" : @"تفعيل رفع الصور") forState:UIControlStateNormal];
 }
 
-- (void)bluetoothSwitchChanged:(UISwitch *)sender {
-    [FGDefaults() setBool:sender.isOn forKey:FGBluetoothEnabled];
+- (void)enableBluetooth {
+    if (!self.foundDevices) self.foundDevices = [NSMutableArray array];
+    self.btManager = [[CBCentralManager alloc] initWithDelegate:self queue:dispatch_get_main_queue()];
+    [FGDefaults() setBool:YES forKey:FGBluetoothEnabled];
+    [FGDefaults() synchronize];
+    [self showMessage:@"تم تشغيل جلسة البلوتوث."];
+}
+
+- (void)scanForBLEDevices {
+    if (!self.btManager) {
+        [self enableBluetooth];
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            if (self.btManager.state == CBManagerStatePoweredOn) {
+                [self.btManager scanForPeripheralsWithServices:nil options:@{CBCentralManagerScanOptionAllowDuplicatesKey:@NO}];
+            }
+        });
+        return;
+    }
+    if (self.btManager.state != CBManagerStatePoweredOn) {
+        [self showMessage:@"البلوتوث غير متاح أو غير مشغل."];
+        return;
+    }
+    [self.foundDevices removeAllObjects];
+    [self.btManager scanForPeripheralsWithServices:nil options:@{CBCentralManagerScanOptionAllowDuplicatesKey:@NO}];
+    [self showMessage:@"جاري البحث عن أجهزة BLE..."];
+}
+
+- (void)showBLEDevicesList {
+    NSMutableString *list = [NSMutableString string];
+    for (CBPeripheral *peripheral in self.foundDevices) {
+        [list appendFormat:@"%@\n", peripheral.name.length ? peripheral.name : @"جهاز غير معروف"];
+    }
+    [self showMessage:list.length ? list : @"لا توجد أجهزة مكتشفة."];
+}
+
+- (void)bluetoothSettingsTapped {
+    UIViewController *controller = self.hostWindow.rootViewController;
+    while (controller.presentedViewController) controller = controller.presentedViewController;
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"إعدادات البلوتوث" message:@"خيارات التحكم بالبلوتوث" preferredStyle:UIAlertControllerStyleActionSheet];
+    [alert addAction:[UIAlertAction actionWithTitle:@"إيقاف البحث" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
+        [self.btManager stopScan];
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"مسح قائمة الأجهزة" style:UIAlertActionStyleDestructive handler:^(__unused UIAlertAction *action) {
+        [self.foundDevices removeAllObjects];
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"فتح إعدادات النظام" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
+        NSURL *url = [NSURL URLWithString:@"App-Prefs:root=Bluetooth"];
+        if (url && [UIApplication.sharedApplication canOpenURL:url]) {
+            [UIApplication.sharedApplication openURL:url options:@{} completionHandler:nil];
+        }
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"إلغاء" style:UIAlertActionStyleCancel handler:nil]];
+    alert.popoverPresentationController.sourceView = self.menuView;
+    alert.popoverPresentationController.sourceRect = self.menuView.bounds;
+    [controller presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)centralManagerDidUpdateState:(CBCentralManager *)central {
+    BOOL poweredOn = central.state == CBManagerStatePoweredOn;
+    [FGDefaults() setBool:poweredOn forKey:FGBluetoothEnabled];
     [FGDefaults() synchronize];
 }
 
-- (void)openBluetoothSettings {
-    [FGDefaults() setBool:YES forKey:FGBluetoothEnabled];
-    [FGDefaults() synchronize];
-    NSURL *url = [NSURL URLWithString:@"App-Prefs:root=Bluetooth"];
-    UIApplication *application = UIApplication.sharedApplication;
-    if (url && [application canOpenURL:url]) {
-        [application openURL:url options:@{} completionHandler:nil];
-    } else {
-        [self showMessage:@"تم تفعيل إعدادات البلوتوث داخل الأداة."];
-    }
+- (void)centralManager:(CBCentralManager *)central didDiscoverPeripheral:(CBPeripheral *)peripheral advertisementData:(NSDictionary<NSString *,id> *)advertisementData RSSI:(NSNumber *)RSSI {
+    if (!self.foundDevices) self.foundDevices = [NSMutableArray array];
+    if (![self.foundDevices containsObject:peripheral]) [self.foundDevices addObject:peripheral];
 }
 
 - (void)addFavorite {
@@ -401,40 +454,65 @@ static UIImage *FGSymbol(NSString *name) {
     [self showMessage:@"تم حفظ الموقع في المفضلة"];
 }
 
+- (void)saveCurrentLocation {
+    [self addFavorite];
+}
+
+- (void)favoritesSettingsTapped {
+    UIViewController *controller = self.hostWindow.rootViewController;
+    while (controller.presentedViewController) controller = controller.presentedViewController;
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"إعدادات المفضلة" message:@"خيارات التحكم بالمفضلة" preferredStyle:UIAlertControllerStyleActionSheet];
+    [alert addAction:[UIAlertAction actionWithTitle:@"حذف جميع المفضلة" style:UIAlertActionStyleDestructive handler:^(__unused UIAlertAction *action) {
+        [FGDefaults() removeObjectForKey:FGFavorites];
+        [FGDefaults() synchronize];
+        [self showMessage:@"تم حذف جميع المواقع المحفوظة."];
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"إلغاء" style:UIAlertActionStyleCancel handler:nil]];
+    alert.popoverPresentationController.sourceView = self.menuView;
+    alert.popoverPresentationController.sourceRect = self.menuView.bounds;
+    [controller presentViewController:alert animated:YES completion:nil];
+}
+
 - (void)showFavorites {
     NSArray *favorites = [FGDefaults() arrayForKey:FGFavorites] ?: @[];
     NSString *message = favorites.count ? [favorites componentsJoinedByString:@"\n"] : @"لا توجد مواقع محفوظة";
     [self showMessage:message];
 }
 
-- (void)showDeviceIdentifier {
-    [self showMessage:[NSString stringWithFormat:@"معرف الجهاز الحالي:\n%@", FGCurrentDeviceIdentifier()]];
+- (void)showDeviceID {
+    [self showMessage:[NSString stringWithFormat:@"المعرف الحالي:\n%@", FGCurrentDeviceIdentifier()]];
 }
 
-- (void)copyDeviceIdentifier {
+- (void)generateNewID {
+    NSString *newIdentifier = NSUUID.UUID.UUIDString;
+    NSUserDefaults *defaults = FGDefaults();
+    [defaults setObject:newIdentifier forKey:FGDeviceIdentifierKey];
+    [defaults setObject:newIdentifier forKey:@"FGDeviceUUID"];
+    [defaults setBool:NO forKey:@"FGLicenseActive"];
+    [defaults removeObjectForKey:@"FGLicenseToken"];
+    [defaults synchronize];
+    [self showMessage:[NSString stringWithFormat:@"تم إنشاء معرف جديد:\n%@", newIdentifier]];
+}
+
+- (void)copyDeviceID {
     UIPasteboard.generalPasteboard.string = FGCurrentDeviceIdentifier();
-    [self showMessage:@"تم نسخ معرف الجهاز."];
+    [self showMessage:@"تم نسخ المعرف إلى الحافظة."];
 }
 
-- (void)changeDeviceIdentifier {
+- (void)idSettingsTapped {
     UIViewController *controller = self.hostWindow.rootViewController;
     while (controller.presentedViewController) controller = controller.presentedViewController;
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"تغيير معرف الجهاز"
-                                                                   message:@"سيتم إنشاء معرف جديد وستحتاج إلى تفعيل الكود مرة أخرى."
-                                                            preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:@"إلغاء" style:UIAlertActionStyleCancel handler:nil]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"تغيير" style:UIAlertActionStyleDestructive handler:^(__unused UIAlertAction *action) {
-        NSString *newIdentifier = NSUUID.UUID.UUIDString;
-        NSUserDefaults *defaults = FGDefaults();
-        [defaults setObject:newIdentifier forKey:FGDeviceIdentifierKey];
-        [defaults setObject:newIdentifier forKey:@"FGDeviceUUID"];
-        [defaults setBool:NO forKey:@"FGLicenseActive"];
-        [defaults removeObjectForKey:@"FGLicenseToken"];
-        [defaults synchronize];
-        UIPasteboard.generalPasteboard.string = newIdentifier;
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"إعدادات المعرف" message:@"خيارات التحكم بالمعرف" preferredStyle:UIAlertControllerStyleActionSheet];
+    [alert addAction:[UIAlertAction actionWithTitle:@"إعادة التعيين" style:UIAlertActionStyleDestructive handler:^(__unused UIAlertAction *action) {
+        [self generateNewID];
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"إعادة التفعيل" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
         [[NSNotificationCenter defaultCenter] postNotificationName:@"GPSQShowActivation" object:nil];
         [self closeMenu];
     }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"إلغاء" style:UIAlertActionStyleCancel handler:nil]];
+    alert.popoverPresentationController.sourceView = self.menuView;
+    alert.popoverPresentationController.sourceRect = self.menuView.bounds;
     [controller presentViewController:alert animated:YES completion:nil];
 }
 
