@@ -282,13 +282,6 @@ static UIImage *FGSymbol(NSString *name) {
                                  action:@selector(openSelectedLocationInAppleMaps)];
     [panel addSubview:mapPin];
 
-    UISearchBar *search = [[UISearchBar alloc] initWithFrame:CGRectMake(14, 142, panel.bounds.size.width - 28, 48)];
-    search.placeholder = @"ابحث بإحداثية أو رمز مختصر أو عنوان";
-    search.searchBarStyle = UISearchBarStyleMinimal;
-    search.delegate = self;
-    search.semanticContentAttribute = UISemanticContentAttributeForceRightToLeft;
-    [panel addSubview:search];
-
     UISegmentedControl *mapType = [[UISegmentedControl alloc] initWithItems:@[@"Apple Maps", @"Google Maps", @"قمر صناعي"]];
     mapType.frame = CGRectMake(14, 98, panel.bounds.size.width - 28, 40);
     mapType.selectedSegmentIndex = 0;
@@ -297,7 +290,7 @@ static UIImage *FGSymbol(NSString *name) {
     [panel addSubview:mapType];
 
     CGFloat mapHeight = MIN(250, MAX(180, panel.bounds.size.height * 0.24));
-    MKMapView *map = [[MKMapView alloc] initWithFrame:CGRectMake(14, 198, panel.bounds.size.width - 28, mapHeight)];
+    MKMapView *map = [[MKMapView alloc] initWithFrame:CGRectMake(14, 146, panel.bounds.size.width - 28, mapHeight)];
     map.layer.cornerRadius = 22;
     map.layer.masksToBounds = YES;
     map.delegate = self;
@@ -313,6 +306,22 @@ static UIImage *FGSymbol(NSString *name) {
     pick.minimumPressDuration = 0.45;
     [map addGestureRecognizer:pick];
 
+    UIButton *locateButton = [self iconButton:@"location.fill"
+                                        frame:CGRectMake(12, map.bounds.size.height - 56, 44, 44)
+                                       action:@selector(locateUserOnMap)];
+    locateButton.backgroundColor = UIColor.whiteColor;
+    locateButton.tintColor = FGColor(30, 105, 232);
+    locateButton.autoresizingMask = UIViewAutoresizingFlexibleTopMargin | UIViewAutoresizingFlexibleRightMargin;
+    [map addSubview:locateButton];
+
+    UIButton *pinButton = [self iconButton:@"mappin"
+                                     frame:CGRectMake(64, map.bounds.size.height - 56, 44, 44)
+                                    action:@selector(placePinAtMapCenter)];
+    pinButton.backgroundColor = UIColor.whiteColor;
+    pinButton.tintColor = FGColor(232, 56, 62);
+    pinButton.autoresizingMask = UIViewAutoresizingFlexibleTopMargin | UIViewAutoresizingFlexibleRightMargin;
+    [map addSubview:pinButton];
+
     CGFloat controlsY = CGRectGetMaxY(map.frame) + 8;
     CGFloat availableHeight = CGRectGetHeight(panel.bounds) - controlsY - MAX(self.hostWindow.safeAreaInsets.bottom, 8);
     UIScrollView *controls = [[UIScrollView alloc] initWithFrame:CGRectMake(0, controlsY, CGRectGetWidth(panel.bounds), availableHeight)];
@@ -324,6 +333,15 @@ static UIImage *FGSymbol(NSString *name) {
     CGFloat width = (CGRectGetWidth(panel.bounds) - 36) / 2.0;
     CGFloat y = 0;
 
+    UIButton *searchButton = [self cardButton:@"بحث بإحداثية أو رابط أو عنوان"
+                                       symbol:@"magnifyingglass"
+                                        frame:CGRectMake(14, y, CGRectGetWidth(panel.bounds) - 28, 52)
+                                       action:@selector(showMapSearch)];
+    searchButton.backgroundColor = FGColor(37, 39, 45);
+    searchButton.contentHorizontalAlignment = UIControlContentHorizontalAlignmentCenter;
+    [controls addSubview:searchButton];
+    y += 60;
+
     UIButton *toggle = [self cardButton:@"تفعيل GPS" symbol:@"location.fill" frame:CGRectMake(14, y, width, 52) action:@selector(toggleGPS:)];
     toggle.backgroundColor = FGColor(33, 166, 92);
     self.gpsToggleButton = toggle;
@@ -334,13 +352,13 @@ static UIImage *FGSymbol(NSString *name) {
     [controls addSubview:upload];
     y += 60;
 
-    UIButton *idSettings = [self cardButton:@"إعدادات المعرف" symbol:@"person.text.rectangle" frame:CGRectMake(14, y, width, 52) action:@selector(idSettingsTapped)];
-    idSettings.backgroundColor = FGColor(192, 115, 24);
-
-    UIButton *bluetoothSettings = [self cardButton:@"إعدادات البلوتوث" symbol:@"wave.3.right" frame:CGRectMake(22 + width, y, width, 52) action:@selector(bluetoothSettingsTapped)];
-    bluetoothSettings.backgroundColor = FGColor(25, 103, 210);
-    [controls addSubview:idSettings];
-    [controls addSubview:bluetoothSettings];
+    UIButton *settingsAndFunctions = [self cardButton:@"الإعدادات والوظائف"
+                                               symbol:@"slider.horizontal.3"
+                                                frame:CGRectMake(14, y, CGRectGetWidth(panel.bounds) - 28, 52)
+                                               action:@selector(openSettingsAndFunctions)];
+    settingsAndFunctions.backgroundColor = FGColor(25, 103, 210);
+    settingsAndFunctions.contentHorizontalAlignment = UIControlContentHorizontalAlignmentCenter;
+    [controls addSubview:settingsAndFunctions];
     y += 60;
 
     UILabel *coord = [[UILabel alloc] initWithFrame:CGRectMake(14, y, CGRectGetWidth(panel.bounds) - 28, 40)];
@@ -406,6 +424,59 @@ static UIImage *FGSymbol(NSString *name) {
 - (void)chooseCurrentLocation {
     [self selectCoordinate:self.mapView.centerCoordinate];
     [self showMessage:@"تم اختيار الموقع الحالي على الخريطة."];
+}
+
+- (void)locateUserOnMap {
+    CLLocation *location = self.mapView.userLocation.location;
+    if (!location) {
+        [self showMessage:@"لم يتم تحديد موقعك الحالي بعد."];
+        return;
+    }
+    [self.mapView setRegion:MKCoordinateRegionMakeWithDistance(location.coordinate, 900, 900) animated:YES];
+}
+
+- (void)placePinAtMapCenter {
+    [self selectCoordinate:self.mapView.centerCoordinate];
+}
+
+- (void)showMapSearch {
+    UIViewController *controller = self.hostWindow.rootViewController;
+    while (controller.presentedViewController) controller = controller.presentedViewController;
+
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"البحث عن موقع"
+                                                                   message:@"إحداثية، رابط Apple/Google Maps، رمز مختصر، أو عنوان"
+                                                            preferredStyle:UIAlertControllerStyleAlert];
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *field) {
+        field.placeholder = @"24.7136, 46.6753";
+        field.textAlignment = NSTextAlignmentCenter;
+        field.autocorrectionType = UITextAutocorrectionTypeNo;
+    }];
+    [alert addAction:[UIAlertAction actionWithTitle:@"رجوع" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"بحث" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
+        UISearchBar *temporarySearch = [UISearchBar new];
+        temporarySearch.text = alert.textFields.firstObject.text;
+        [self searchBarSearchButtonClicked:temporarySearch];
+    }]];
+    [controller presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)openSettingsAndFunctions {
+    UIViewController *controller = self.hostWindow.rootViewController;
+    while (controller.presentedViewController) controller = controller.presentedViewController;
+
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"الإعدادات والوظائف"
+                                                                   message:@"اختر القسم"
+                                                            preferredStyle:UIAlertControllerStyleActionSheet];
+    [alert addAction:[UIAlertAction actionWithTitle:@"قسم المعرّف" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
+        dispatch_async(dispatch_get_main_queue(), ^{ [self idSettingsTapped]; });
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"قسم البلوتوث" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
+        dispatch_async(dispatch_get_main_queue(), ^{ [self bluetoothSettingsTapped]; });
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"رجوع" style:UIAlertActionStyleCancel handler:nil]];
+    alert.popoverPresentationController.sourceView = self.menuView;
+    alert.popoverPresentationController.sourceRect = self.menuView.bounds;
+    [controller presentViewController:alert animated:YES completion:nil];
 }
 
 - (void)pickLocation:(UILongPressGestureRecognizer *)gesture {
@@ -499,7 +570,7 @@ static UIImage *FGSymbol(NSString *name) {
         }]];
     }
 
-    [alert addAction:[UIAlertAction actionWithTitle:@"إلغاء" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"رجوع" style:UIAlertActionStyleCancel handler:nil]];
     alert.popoverPresentationController.sourceView = self.menuView;
     alert.popoverPresentationController.sourceRect = self.menuView.bounds;
     [controller presentViewController:alert animated:YES completion:nil];
@@ -537,7 +608,7 @@ static UIImage *FGSymbol(NSString *name) {
             [UIApplication.sharedApplication openURL:url options:@{} completionHandler:nil];
         }
     }]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"إلغاء" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"رجوع" style:UIAlertActionStyleCancel handler:nil]];
     alert.popoverPresentationController.sourceView = self.menuView;
     alert.popoverPresentationController.sourceRect = self.menuView.bounds;
     [controller presentViewController:alert animated:YES completion:nil];
@@ -632,7 +703,7 @@ static UIImage *FGSymbol(NSString *name) {
         [FGDefaults() synchronize];
         [self showMessage:@"تم حذف جميع المواقع المحفوظة."];
     }]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"إلغاء" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"رجوع" style:UIAlertActionStyleCancel handler:nil]];
     alert.popoverPresentationController.sourceView = self.menuView;
     alert.popoverPresentationController.sourceRect = self.menuView.bounds;
     [controller presentViewController:alert animated:YES completion:nil];
@@ -732,7 +803,7 @@ static UIImage *FGSymbol(NSString *name) {
         field.autocapitalizationType = UITextAutocapitalizationTypeAllCharacters;
         self.manualIDField = field;
     }];
-    [editor addAction:[UIAlertAction actionWithTitle:@"إلغاء" style:UIAlertActionStyleCancel handler:nil]];
+    [editor addAction:[UIAlertAction actionWithTitle:@"رجوع" style:UIAlertActionStyleCancel handler:nil]];
     [editor addAction:[UIAlertAction actionWithTitle:@"حفظ المعرف" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
         [self saveDeviceIdentifier];
     }]];
@@ -764,7 +835,7 @@ static UIImage *FGSymbol(NSString *name) {
         [[NSNotificationCenter defaultCenter] postNotificationName:@"GPSQShowActivation" object:nil];
         [self closeMenu];
     }]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"إلغاء" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"رجوع" style:UIAlertActionStyleCancel handler:nil]];
     alert.popoverPresentationController.sourceView = self.menuView;
     alert.popoverPresentationController.sourceRect = self.menuView.bounds;
     [controller presentViewController:alert animated:YES completion:nil];
