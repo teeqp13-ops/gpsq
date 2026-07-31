@@ -42,7 +42,7 @@ jobs:
           test -f GPSQActivation.plist
           test -f Sources/GPSQActivation.mm
           plistutil -lint GPSQActivation.plist
-          grep -q 'key.p3nd.fun/activation/api' Sources/GPSQActivation.mm
+          grep -q 'mm.p3nd.fun/api' Sources/GPSQActivation.mm
           grep -q 'GPProjectKey = @"gpsq"' Sources/GPSQActivation.mm
 
       - name: Build DEB and dylib

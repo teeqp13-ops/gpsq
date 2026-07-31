@@ -3,7 +3,7 @@ name: Build GPSQ Main With Activation UI
 on:
   workflow_dispatch:
   push:
-    branches: [main, feature/gpsq-activation-system, feature/wolfgps-v17-ui]
+    branches: [main, feature/gpsq-activation-system, feature/wolfgps-v16-ui]
     paths:
       - 'Makefile'
       - 'FakeGPS.mm'
@@ -11,9 +11,6 @@ on:
       - 'FeaturePack.xm'
       - 'LocationSpoof.xm'
       - 'Sources/**'
-      - 'control'
-      - 'Resources/Info.plist'
-      - 'integrations/gpsq-activation/control'
       - 'gpsq.plist'
       - 'FakeGPSLocation.plist'
       - 'integrations/gpsq-activation/Sources/GPSQActivation.mm'
@@ -27,9 +24,6 @@ on:
       - 'FeaturePack.xm'
       - 'LocationSpoof.xm'
       - 'Sources/**'
-      - 'control'
-      - 'Resources/Info.plist'
-      - 'integrations/gpsq-activation/control'
       - 'gpsq.plist'
       - 'FakeGPSLocation.plist'
       - 'integrations/gpsq-activation/Sources/GPSQActivation.mm'
@@ -64,7 +58,7 @@ jobs:
           grep -q 'Sources/WFModernPanel.xm' Makefile
           grep -q 'integrations/gpsq-activation/Sources/GPSQActivation.mm' Makefile
           grep -q 'Security' Makefile
-          grep -q 'key.p3nd.fun/activation/api' integrations/gpsq-activation/Sources/GPSQActivation.mm
+          grep -q 'mm.p3nd.fun/api' integrations/gpsq-activation/Sources/GPSQActivation.mm
           grep -q 'GPProjectKey = @"gpsq"' integrations/gpsq-activation/Sources/GPSQActivation.mm
 
       - name: Build main package
@@ -89,7 +83,7 @@ jobs:
       - name: Upload main artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: WolfGPS-V17-${{ github.run_number }}
+          name: GPSQ-Main-With-Activation-${{ github.run_number }}
           path: artifacts/**
           if-no-files-found: error
           retention-days: 30
