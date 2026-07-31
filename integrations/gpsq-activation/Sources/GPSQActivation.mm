@@ -167,7 +167,7 @@ static __weak GPSQActivationViewController *GPCurrentController;
     ]];
 
     UILabel *title = [self labelWithText:@"التفعيل مطلوب" size:19 weight:UIFontWeightHeavy color:UIColor.whiteColor];
-    UILabel *subtitle = [self labelWithText:@"أدخل كود التفعيل للوصول إلى مميزات Wolf GPS V17" size:13 weight:UIFontWeightRegular color:GPColor(0x6B7488)];
+    UILabel *subtitle = [self labelWithText:@"أدخل كود التفعيل للوصول إلى مميزات Fake GPS" size:13 weight:UIFontWeightRegular color:GPColor(0x6B7488)];
 
     UIView *card = [UIView new];
     card.backgroundColor = GPColor(0x0E142B);
