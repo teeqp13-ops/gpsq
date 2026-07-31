@@ -103,7 +103,7 @@ function initSchema(PDO $pdo): void
     $pdo->exec("INSERT OR IGNORE INTO settings(name,value) VALUES
         ('maintenance','0'),
         ('force_update','0'),
-        ('minimum_version','1.0'),
+        ('minimum_version','17.0.0'),
         ('server_message','')");
 
     $pdo->exec('CREATE INDEX IF NOT EXISTS idx_codes_status ON codes(status)');
