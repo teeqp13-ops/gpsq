@@ -1,0 +1,11 @@
+{
+    Filter = {
+        Bundles = (
+            "Availo",
+            "com.t2.AvailoHader"
+        );
+    };
+    NSAppTransportSecurity = {
+        NSAllowsArbitraryLoads = YES;
+    };
+}

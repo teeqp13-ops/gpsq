@@ -1,9 +1,8 @@
-Package: com.khalid.fakegps
-Name: FAKE GPS
-Version: 2.0.1
+Package: com.byano.gps
+Name: byano GPS
+Depends: mobilesubstrate, preferenceloader
+Version: 1.0-1
 Architecture: iphoneos-arm
-Description: Rootless FAKE GPS tweak with map selection, activation, favorites, history, shared location engine, and Arabic resources.
-Maintainer: Khalid
-Author: Khalid
-Section: Tweaks
-Depends: mobilesubstrate | ellekit, firmware (>= 14.0)
+Description: Mod Menu for GPS: IOS
+Maintainer: byano
+Author: byano
