@@ -96,9 +96,9 @@ jobs:
           bash -n scripts/clean.sh
           bash -n scripts/validate.sh
           bash -n scripts/build.sh
-          plistutil -lint Resources/Info.plist
-          plistutil -lint gpsq.plist
-          plistutil -lint FakeGPSLocation.plist
+          plistutil -i Resources/Info.plist -o /dev/null
+          plistutil -i gpsq.plist -o /dev/null
+          plistutil -i FakeGPSLocation.plist -o /dev/null
           chmod +x scripts/clean.sh scripts/validate.sh scripts/build.sh
       - name: Install Theos
         shell: bash
@@ -110,7 +110,7 @@ jobs:
             https://raw.githubusercontent.com/theos/theos/master/bin/install-theos \
             -o "$installer"
           chmod +x "$installer"
-          yes n | bash "$installer"
+          yes n | bash "$installer" || true
           test -f "$THEOS/makefiles/common.mk"
           test -x "$THEOS/toolchain/linux/iphone/bin/clang"
           sdk_path="$(find "$THEOS/sdks" -maxdepth 1 -type d -name '*.sdk' -print -quit)"

@@ -166,9 +166,9 @@ jobs:
           bash -n scripts/validate.sh
           bash -n scripts/build.sh
 
-          plistutil -lint Resources/Info.plist
-          plistutil -lint gpsq.plist
-          plistutil -lint FakeGPSLocation.plist
+          plistutil -i Resources/Info.plist -o /dev/null
+          plistutil -i gpsq.plist -o /dev/null
+          plistutil -i FakeGPSLocation.plist -o /dev/null
 
           chmod +x \
             scripts/clean.sh \
@@ -198,7 +198,7 @@ jobs:
 
           chmod +x "$installer"
 
-          yes n | bash "$installer"
+          yes n | bash "$installer" || true
 
           test -f "$THEOS/makefiles/common.mk"
           test -x "$THEOS/toolchain/linux/iphone/bin/clang"
