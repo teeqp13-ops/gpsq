@@ -14,17 +14,43 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Set Default Scheme
+      - name: Detect Xcode project
+        id: detect_xcode
         run: |
-          scheme_list=$(xcodebuild -list -json | tr -d "\n")
-          default=$(echo $scheme_list | ruby -e "require 'json'; puts JSON.parse(STDIN.gets)['project']['targets'][0]")
-          echo $default | cat >default
-          echo Using default scheme: $default
+          shopt -s nullglob
+          workspaces=( *.xcworkspace )
+          projects=( *.xcodeproj )
+
+          if [ "${#workspaces[@]}" -gt 0 ]; then
+            filetype_parameter="workspace"
+            file_to_build="${workspaces[0]}"
+          elif [ "${#projects[@]}" -gt 0 ]; then
+            filetype_parameter="project"
+            file_to_build="${projects[0]}"
+          else
+            echo "has_xcode_project=false" >> "$GITHUB_OUTPUT"
+            echo "No Xcode project or workspace found in the repository; skipping xcodebuild analysis."
+            exit 0
+          fi
+
+          scheme_list=$(xcodebuild -list -json -"$filetype_parameter" "$file_to_build" | tr -d "\n")
+          default=$(printf '%s' "$scheme_list" | ruby -e "require 'json'; data = JSON.parse(STDIN.read); puts(data.dig('project', 'targets', 0) || data.dig('workspace', 'schemes', 0))")
+
+          if [ -z "$default" ]; then
+            echo "Unable to determine a default Xcode scheme for $file_to_build" >&2
+            exit 1
+          fi
+
+          echo "has_xcode_project=true" >> "$GITHUB_OUTPUT"
+          echo "filetype_parameter=$filetype_parameter" >> "$GITHUB_OUTPUT"
+          echo "file_to_build=$file_to_build" >> "$GITHUB_OUTPUT"
+          echo "scheme=$default" >> "$GITHUB_OUTPUT"
+          echo Using default scheme: "$default"
       - name: Build
+        if: steps.detect_xcode.outputs.has_xcode_project == 'true'
         env:
-          scheme: ${{ 'default' }}
+          scheme: ${{ steps.detect_xcode.outputs.scheme }}
+          filetype_parameter: ${{ steps.detect_xcode.outputs.filetype_parameter }}
+          file_to_build: ${{ steps.detect_xcode.outputs.file_to_build }}
         run: |
-          if [ $scheme = default ]; then scheme=$(cat default); fi
-          if [ "`ls -A | grep -i \\.xcworkspace\$`" ]; then filetype_parameter="workspace" && file_to_build="`ls -A | grep -i \\.xcworkspace\$`"; else filetype_parameter="project" && file_to_build="`ls -A | grep -i \\.xcodeproj\$`"; fi
-          file_to_build=`echo $file_to_build | awk '{$1=$1;print}'`
           xcodebuild clean build analyze -scheme "$scheme" -"$filetype_parameter" "$file_to_build" | xcpretty && exit ${PIPESTATUS[0]}
