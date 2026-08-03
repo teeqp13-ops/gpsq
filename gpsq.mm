@@ -66,7 +66,7 @@ static NSString *GPSQDateText(NSDate *date) {
     return [f stringFromDate:date];
 }
 
-@interface GPSQRootController : UIViewController <UITextFieldDelegate, MKMapViewDelegate>
+@interface GPSQRootController : UIViewController <UITextFieldDelegate, MKMapViewDelegate, CLLocationManagerDelegate>
 @property(nonatomic,strong) UIButton *floatingButton;
 @property(nonatomic,strong) UIView *dialogView;
 @property(nonatomic,strong) UITextField *codeField;
@@ -74,7 +74,11 @@ static NSString *GPSQDateText(NSDate *date) {
 @property(nonatomic,strong) UIView *fullOverlay;
 @property(nonatomic,strong) MKMapView *mapView;
 @property(nonatomic,strong) UISegmentedControl *mapTypeControl;
+@property(nonatomic,strong) CLLocationManager *locationManager;
+@property(nonatomic,strong) NSTimer *movementTimer;
 @property(nonatomic,assign) BOOL activated;
+@property(nonatomic,assign) BOOL isSimulating;
+@property(nonatomic,assign) CLLocationCoordinate2D currentCoordinate;
 @property(nonatomic,assign) CGPoint dragStart;
 @end
 
@@ -84,6 +88,7 @@ static NSString *GPSQDateText(NSDate *date) {
     [super viewDidLoad];
     self.view.backgroundColor = UIColor.clearColor;
     self.activated = [self hasValidActivation];
+    self.currentCoordinate = CLLocationCoordinate2DMake(24.7136, 46.6753);
     [self buildFloatingIcon];
 }
 
@@ -289,17 +294,33 @@ static NSString *GPSQDateText(NSDate *date) {
     [self.fullOverlay addSubview:info];
     self.mapTypeControl = [[UISegmentedControl alloc] initWithItems:@[@"خريطة", @"قمر", @"هجينة"]];
     self.mapTypeControl.frame = CGRectMake(18, 100, self.view.bounds.size.width - 36, 34);
-    self.mapTypeControl.selectedSegmentIndex = 0;
+    self.mapTypeControl.selectedSegmentIndex = 1;
     [self.mapTypeControl addTarget:self action:@selector(changeMapType) forControlEvents:UIControlEventValueChanged];
     [self.fullOverlay addSubview:self.mapTypeControl];
     CGFloat mapY = 144;
     self.mapView = [[MKMapView alloc] initWithFrame:CGRectMake(18, mapY, self.view.bounds.size.width - 36, self.view.bounds.size.height - mapY - 178)];
     self.mapView.delegate = self;
     self.mapView.showsUserLocation = YES;
+    self.mapView.mapType = MKMapTypeSatellite;
+    self.mapView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     self.mapView.layer.cornerRadius = 18;
     self.mapView.layer.masksToBounds = YES;
-    CLLocationCoordinate2D makkah = CLLocationCoordinate2DMake(21.3891, 39.8579);
-    [self.mapView setRegion:MKCoordinateRegionMakeWithDistance(makkah, 1800, 1800) animated:NO];
+    self.locationManager = [CLLocationManager new];
+    self.locationManager.delegate = self;
+    self.locationManager.desiredAccuracy = kCLLocationAccuracyBest;
+    if ([self.locationManager respondsToSelector:@selector(requestWhenInUseAuthorization)]) {
+        [self.locationManager requestWhenInUseAuthorization];
+    }
+    UIPanGestureRecognizer *panGesture = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handleMapPan:)];
+    [self.mapView addGestureRecognizer:panGesture];
+    UITapGestureRecognizer *doubleTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleMapDoubleTap:)];
+    doubleTap.numberOfTapsRequired = 2;
+    [self.mapView addGestureRecognizer:doubleTap];
+    UILongPressGestureRecognizer *longPress = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(handleMapLongPress:)];
+    longPress.minimumPressDuration = 0.5;
+    [self.mapView addGestureRecognizer:longPress];
+    [self setMapLocation:self.currentCoordinate animated:NO];
+    [self changeMapType];
     [self.fullOverlay addSubview:self.mapView];
     CGFloat y = self.view.bounds.size.height - 160;
     CGFloat w = (self.view.bounds.size.width - 52) / 2.0;
@@ -322,15 +343,76 @@ static NSString *GPSQDateText(NSDate *date) {
     self.mapView.mapType = i == 0 ? MKMapTypeStandard : (i == 1 ? MKMapTypeSatellite : MKMapTypeHybrid);
 }
 
+- (void)setMapLocation:(CLLocationCoordinate2D)coordinate animated:(BOOL)animated {
+    self.currentCoordinate = coordinate;
+    MKCoordinateRegion region = MKCoordinateRegionMakeWithDistance(coordinate, 1000, 1000);
+    [self.mapView setRegion:region animated:animated];
+    NSMutableArray *annotations = [NSMutableArray array];
+    for (id<MKAnnotation> annotation in self.mapView.annotations) {
+        if (![annotation isKindOfClass:MKUserLocation.class]) [annotations addObject:annotation];
+    }
+    [self.mapView removeAnnotations:annotations];
+    MKPointAnnotation *pin = [MKPointAnnotation new];
+    pin.coordinate = coordinate;
+    pin.title = @"الموقع المحدد";
+    [self.mapView addAnnotation:pin];
+}
+
+- (void)startSimulatingMovement {
+    if (self.isSimulating) return;
+    self.isSimulating = YES;
+    __weak typeof(self) weakSelf = self;
+    self.movementTimer = [NSTimer scheduledTimerWithTimeInterval:2.0 repeats:YES block:^(__unused NSTimer *timer) {
+        __strong typeof(weakSelf) self = weakSelf;
+        if (!self || !self.isSimulating) return;
+        int randomLat = (int)arc4random_uniform(100) - 50;
+        int randomLng = (int)arc4random_uniform(100) - 50;
+        double latOffset = randomLat / 100000.0;
+        double lngOffset = randomLng / 100000.0;
+        CLLocationCoordinate2D newCoord = CLLocationCoordinate2DMake(self.currentCoordinate.latitude + latOffset, self.currentCoordinate.longitude + lngOffset);
+        [self setMapLocation:newCoord animated:YES];
+    }];
+}
+
+- (void)stopSimulatingMovement {
+    self.isSimulating = NO;
+    [self.movementTimer invalidate];
+    self.movementTimer = nil;
+}
+
+- (void)handleMapPan:(UIPanGestureRecognizer *)gesture {
+    if (gesture.state == UIGestureRecognizerStateEnded) {
+        self.currentCoordinate = self.mapView.centerCoordinate;
+    }
+}
+
+- (void)handleMapDoubleTap:(UITapGestureRecognizer *)gesture {
+    if (gesture.state != UIGestureRecognizerStateRecognized) return;
+    MKCoordinateRegion region = self.mapView.region;
+    region.span.latitudeDelta /= 2.0;
+    region.span.longitudeDelta /= 2.0;
+    [self.mapView setRegion:region animated:YES];
+}
+
+- (void)handleMapLongPress:(UILongPressGestureRecognizer *)gesture {
+    if (gesture.state != UIGestureRecognizerStateBegan) return;
+    CGPoint touchPoint = [gesture locationInView:self.mapView];
+    CLLocationCoordinate2D coord = [self.mapView convertPoint:touchPoint toCoordinateFromView:self.mapView];
+    [self stopSimulatingMovement];
+    [self setMapLocation:coord animated:YES];
+    [self showCenterNotice:@"تم تحديد الموقع"];
+}
+
 - (void)goCurrentLocation {
     CLLocation *loc = self.mapView.userLocation.location;
     if (!loc) { [self showCenterNotice:@"لم يتم تحديد موقعك بعد"]; return; }
-    [self.mapView setRegion:MKCoordinateRegionMakeWithDistance(loc.coordinate, 900, 900) animated:YES];
+    [self stopSimulatingMovement];
+    [self setMapLocation:loc.coordinate animated:YES];
     [self showCenterNotice:@"تم تحديد موقعك الحالي"];
 }
 
 - (void)saveCurrentMapLocation {
-    CLLocationCoordinate2D c = self.mapView.centerCoordinate;
+    CLLocationCoordinate2D c = self.currentCoordinate;
     NSMutableArray *arr = [[[NSUserDefaults standardUserDefaults] arrayForKey:@"GPSQ_SavedLocations"] mutableCopy] ?: [NSMutableArray array];
     NSDictionary *item = @{@"title": [NSString stringWithFormat:@"موقع %lu", (unsigned long)arr.count + 1], @"lat": @(c.latitude), @"lng": @(c.longitude)};
     [arr addObject:item];
@@ -349,7 +431,8 @@ static NSString *GPSQDateText(NSDate *date) {
         double lng = [item[@"lng"] doubleValue];
         [ac addAction:[UIAlertAction actionWithTitle:title style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a) {
             CLLocationCoordinate2D c = CLLocationCoordinate2DMake(lat, lng);
-            [self.mapView setRegion:MKCoordinateRegionMakeWithDistance(c, 900, 900) animated:YES];
+            [self stopSimulatingMovement];
+            [self setMapLocation:c animated:YES];
             [self showCenterNotice:@"تم اختيار الموقع"];
         }]];
     }
@@ -357,7 +440,29 @@ static NSString *GPSQDateText(NSDate *date) {
     [self presentViewController:ac animated:YES completion:nil];
 }
 
-- (void)closeFullOverlay { [self.fullOverlay removeFromSuperview]; self.fullOverlay = nil; }
+- (MKAnnotationView *)mapView:(MKMapView *)mapView viewForAnnotation:(id<MKAnnotation>)annotation {
+    if ([annotation isKindOfClass:MKUserLocation.class]) return nil;
+    MKPinAnnotationView *pinView = (MKPinAnnotationView *)[mapView dequeueReusableAnnotationViewWithIdentifier:@"gpsq_pin"];
+    if (!pinView) {
+        pinView = [[MKPinAnnotationView alloc] initWithAnnotation:annotation reuseIdentifier:@"gpsq_pin"];
+        pinView.pinTintColor = GPSQColor(66, 133, 244);
+        pinView.animatesDrop = YES;
+        pinView.canShowCallout = YES;
+    } else {
+        pinView.annotation = annotation;
+    }
+    return pinView;
+}
+
+- (void)locationManager:(__unused CLLocationManager *)manager didUpdateLocations:(__unused NSArray<CLLocation *> *)locations {
+}
+
+- (void)closeFullOverlay {
+    [self stopSimulatingMovement];
+    self.mapView.delegate = nil;
+    [self.fullOverlay removeFromSuperview];
+    self.fullOverlay = nil;
+}
 
 - (void)showSubscriptionInfo {
     NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
