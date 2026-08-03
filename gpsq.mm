@@ -8,8 +8,8 @@
 #define GPSQ_API_BASE @"https://ipa.p3nd.fun/server/public/api"
 #endif
 #ifndef GPSQ_API_KEY
-#define GPSQ_API_KEY @""
 #error "GPS_API_TOKEN must be defined"
+#define GPSQ_API_KEY @""
 #endif
 
 #define GPSQ_APP_NAME @"GPS Plus"

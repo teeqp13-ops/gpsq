@@ -32,7 +32,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  GPSQ_API_BASE: https://ipa.p3nd.fun/server/api
+  GPSQ_API_BASE: https://ipa.p3nd.fun/server/public/api
   GPSQ_API_KEY: ${{ secrets.GPSQ_API_KEY }}
   REGISTRY: ghcr.io
   CI_COMMIT_SHA: ${{ github.sha }}
