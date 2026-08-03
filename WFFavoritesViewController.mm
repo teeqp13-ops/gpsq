@@ -1,7 +1,8 @@
 #import "WFFavoritesViewController.h"
 #import "ok.h"
 
-
+static inline UIColor *WFText(void)   { return [UIColor colorWithRed:0.918 green:0.906 blue:0.961 alpha:1.0]; }
+static inline UIColor *WFDanger(void) { return [UIColor colorWithRed:0.973 green:0.443 blue:0.443 alpha:1.0]; }
 
 static UIWindow *favoritesWindow = nil;
 

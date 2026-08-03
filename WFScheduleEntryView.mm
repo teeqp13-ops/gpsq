@@ -2,6 +2,9 @@
 #import "ok.h"
 #import <objc/runtime.h>
 
+static inline UIColor *WFText(void)    { return [UIColor colorWithRed:0.918 green:0.906 blue:0.961 alpha:1.0]; }
+static inline UIColor *WFSuccess(void) { return [UIColor colorWithRed:0.204 green:0.827 blue:0.600 alpha:1.0]; }
+
 static UIWindow *scheduleWindow = nil;
 
 @implementation WFScheduleEntryViewController {
