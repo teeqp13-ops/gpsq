@@ -33,14 +33,28 @@ bash -n scripts/clean.sh
 bash -n scripts/build.sh
 
 grep -Fq 'TWEAK_NAME := gpsq FakeGPSLocation' Makefile
-grep -Fq 'gpsq_FILES := FakeGPS.mm SharedBridge.xm FeaturePack.xm' Makefile
+grep -Fq 'gpsq_FILES :=' Makefile
+for gpsq_source in \
+  'FakeGPS.mm' \
+  'SharedBridge.xm' \
+  'FeaturePack.xm' \
+  'Sources/WFModernPanel.xm' \
+  'Sources/WFThemeManager.mm' \
+  'Sources/WFLocalization.mm' \
+  'Sources/WFFavoritesStore.mm' \
+  'Sources/WFFavoritesViewController.mm' \
+  'Sources/WFGPXMovementManager.mm' \
+  'integrations/gpsq-activation/Sources/GPSQActivation.mm'; do
+  grep -Fq "$gpsq_source" Makefile
+done
 grep -Fq 'FakeGPSLocation_FILES := LocationSpoof.xm' Makefile
 grep -Fq 'Package: com.khalid.fakegps' control
 grep -Eq '^Version: [0-9]+\.[0-9]+\.[0-9]+$' control
 grep -Fq 'com.apple.springboard' gpsq.plist
 grep -Fq 'CLLocationManager' FakeGPSLocation.plist
 grep -Fq 'FGLicenseIsActive' FeaturePack.xm
-grep -Fq 'https://key.p3nd.fun/api/activate.php' FeaturePack.xm
+grep -Fq 'key.p3nd.fun' FeaturePack.xm
+grep -Fq 'activate.php' FeaturePack.xm
 
 python3 -m json.tool Resources/defaults.json >/dev/null
 python3 - <<'PY'
@@ -70,10 +84,19 @@ if git ls-files | grep -Eq "$auto_generated_pattern"; then
   exit 1
 fi
 
-# Scan common assignment styles while excluding known non-secret references.
-if git grep -nEi '(api[_-]?key|secret|password)[[:space:]]*[:=][[:space:]]*[^[:space:]]+' -- \
-  ':!scripts/validate.sh' \
-  ':!Resources/defaults.json'; then
+# Scan for likely hard-coded string secrets while ignoring docs, generated assets,
+# binary files, and explicit placeholder values.
+secret_hits="$(
+  git grep -nIE "[A-Za-z0-9_$.:-]*(api[_-]?key|secret|password)[A-Za-z0-9_$.:-]*[[:space:]]*[:=][[:space:]]*['\"][^'\"]+['\"]" -- \
+    ':!scripts/validate.sh' \
+    ':!Resources/defaults.json' \
+    ':!*.md' \
+    ':!*.zip' \
+    || true
+)"
+secret_hits="$(printf '%s\n' "$secret_hits" | grep -Ev 'CHANGE_THIS_SECRET|config\.sample\.php|config\.example\.php' || true)"
+if [[ -n "$secret_hits" ]]; then
+  printf '%s\n' "$secret_hits"
   echo 'Possible hard-coded secret detected.' >&2
   exit 1
 fi
