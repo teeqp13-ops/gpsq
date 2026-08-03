@@ -90,8 +90,8 @@ static NSString *GPSQDateText(NSDate *date) {
 - (BOOL)hasValidActivation {
     NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
     if (![d boolForKey:@"GPSQ_Activated"]) return NO;
-    NSString *token = [d stringForKey:@"GPSQ_Token"] ?: @"";
-    if (token.length == 0) return NO;
+    NSString *code = [d stringForKey:@"GPSQ_Code"] ?: @"";
+    if (code.length == 0) return NO;
     NSDate *expires = [d objectForKey:@"GPSQ_ExpiresAt"];
     if ([expires isKindOfClass:NSDate.class] && [expires timeIntervalSinceNow] > 0) return YES;
     [d setBool:NO forKey:@"GPSQ_Activated"];
@@ -116,6 +116,7 @@ static NSString *GPSQDateText(NSDate *date) {
 
 - (void)floatingTapped {
     self.activated = [self hasValidActivation];
+    [self.floatingButton setActivatedState:self.activated animated:NO];
     if (self.activated) [self showFullOverlay];
     else [self showActivationDialog];
 }

@@ -64,7 +64,7 @@ gpsq-DEB-Packages
 رابط التفعيل داخل `Headers/GPSQConfig.h` وداخل `gpsq.mm`:
 
 ```objc
-#define GPSQ_ACTIVATION_URL @"https://p3nd.fun/gps/api/activate.php"
+#define GPSQ_ACTIVATION_URL @"https://ipa.p3nd.fun/server/public/api/activate.php"
 ```
 
 البيانات المرسلة للسيرفر:

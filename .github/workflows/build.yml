@@ -185,13 +185,13 @@ jobs:
           rm -rf build/ obj/ *.deb *.o
           echo "✅ تم التنظيف"
 
-      - name: 🔐 التحقق من #error guard
+      - name: 🔐 التحقق من حماية متغيرات الـ API
         run: |
-          echo "🔐 التحقق من حماية #error..."
-          if grep -q '#error.*GPS_API_TOKEN.*must be defined' Sources/GPSApiLocal.mm; then
-            echo "✅ #error guard موجود وصحيح"
+          echo "🔐 التحقق من تعريفات GPSQ_API_*..."
+          if grep -q '#ifndef GPSQ_API_BASE' gpsq.mm && grep -q '#ifndef GPSQ_API_KEY' gpsq.mm; then
+            echo "✅ تعريفات GPSQ_API_* موجودة وصحيحة"
           else
-            echo "❌ #error guard مفقود أو معطل"
+            echo "❌ تعريفات GPSQ_API_* مفقودة أو معطلة"
             exit 1
           fi
 
