@@ -1,0 +1,10 @@
+Package: com.wolfox.pro.gps
+Name: Wolf GPS Pro
+Depends: mobilesubstrate, com.apple.mapkit
+Version: 14.0.0
+Architecture: iphoneos-arm
+Description: النسخة الاحترافية المتكاملة من Wolf GPS Pro - تزوير الموقع، تخطي الحماية، وإدارة متقدمة.
+Maintainer: WolFox
+Author: WolFox
+Section: Tweaks
+Icon: file:///var/jb/Library/PreferenceBundles/WolfGPS.bundle/icon.png
