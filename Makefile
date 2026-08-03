@@ -27,20 +27,9 @@ include $(THEOS_MAKE_PATH)/common.mk
 
 TWEAK_NAME := gpsq FakeGPSLocation
 
-gpsq_FILES := \
-	FakeGPS.mm \
-	SharedBridge.xm \
-	FeaturePack.xm \
-	Sources/WFModernPanel.xm \
-	Sources/WFThemeManager.mm \
-	Sources/WFLocalization.mm \
-	Sources/WFFavoritesStore.mm \
-	Sources/WFFavoritesViewController.mm \
-	Sources/WFGPXMovementManager.mm \
-	integrations/gpsq-activation/Sources/GPSQActivation.mm
-
+gpsq_FILES := FakeGPS.mm SharedBridge.xm FeaturePack.xm integrations/gpsq-activation/Sources/GPSQActivation.mm
 gpsq_FRAMEWORKS := UIKit Foundation QuartzCore MapKit CoreLocation AVFoundation Security
-gpsq_CFLAGS := -fobjc-arc -fblocks -ISources -Wall -Wextra -Wno-error -Wno-deprecated-declarations -Wno-unused-function -Wno-unused-variable -Wno-unused-parameter
+gpsq_CFLAGS := -fobjc-arc -fblocks -Wall -Wextra -Wno-error -Wno-deprecated-declarations -Wno-unused-function -Wno-unused-variable -Wno-unused-parameter
 gpsq_LDFLAGS := -Wl,-dead_strip
 
 FakeGPSLocation_FILES := LocationSpoof.xm
