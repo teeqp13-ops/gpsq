@@ -106,8 +106,8 @@ static UIWindow *activationWindow = nil;
     _codeField.layer.borderColor = [UIColor colorWithWhite:1 alpha:0.10].CGColor;
     _codeField.autocapitalizationType = UITextAutocapitalizationTypeAllCharacters;
     _codeField.returnKeyType = UIReturnKeyGo;
-    [_codeField addTarget:self action:@selector(codeFieldDidChange:) forControlEvents:UIControlEventEditingChanged];
     _codeField.delegate = self;
+    [_codeField addTarget:self action:@selector(codeFieldDidChange:) forControlEvents:UIControlEventEditingChanged];
     
     // إضافة شريط أدوات فوق الكيبورد
     UIToolbar *toolbar = [[UIToolbar alloc] initWithFrame:CGRectMake(0, 0, self.view.frame.size.width, 44)];

@@ -41,7 +41,7 @@ jobs:
           test -f control
           test -f GPSQActivation.plist
           test -f Sources/GPSQActivation.mm
-          plistutil -lint GPSQActivation.plist
+          plistutil -i GPSQActivation.plist -o /dev/null
           grep -q 'key.p3nd.fun/activation/api' Sources/GPSQActivation.mm
           grep -q 'GPProjectKey = @"gpsq"' Sources/GPSQActivation.mm
 

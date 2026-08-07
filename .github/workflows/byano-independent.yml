@@ -37,7 +37,7 @@ jobs:
           INSTALLER="$(mktemp)"
           curl --retry 3 --retry-delay 2 -fsSL https://raw.githubusercontent.com/theos/theos/master/bin/install-theos -o "$INSTALLER"
           chmod +x "$INSTALLER"
-          printf 'n\n' | bash "$INSTALLER"
+          printf 'n\n' | bash "$INSTALLER" || true
           test -f "$THEOS/makefiles/common.mk"
           test -x "$THEOS/toolchain/linux/iphone/bin/clang"
           test -n "$(find "$THEOS/sdks" -maxdepth 1 -type d -name '*.sdk' -print -quit)"
@@ -53,7 +53,7 @@ jobs:
           test -f GPSPlusActivation.mm
           bash -n build.sh
           bash -n install_external_config.sh
-          plistutil -lint ExternalLicense.sample.plist
+          plistutil -i ExternalLicense.sample.plist -o /dev/null
 
       - name: Build DEB and dylib
         working-directory: integrations/byano-independent
